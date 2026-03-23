@@ -87,7 +87,6 @@ class DefaultRuntime(RuntimePlugin):
             input_text=input_text,
         )
 
-        plugins = load_agent_plugins(agent)
         llm_client = self._get_llm_client(agent)
         await self._event_bus.emit(
             RUN_VALIDATED,

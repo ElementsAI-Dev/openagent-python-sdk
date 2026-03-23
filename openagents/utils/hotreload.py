@@ -98,6 +98,7 @@ class HotReloadServer:
         self.port = port
         self._watcher: ConfigWatcher | None = None
         self._server: Any = None
+        self._web_module: Any = None  # Store aiohttp web module for handlers
 
     async def start(self) -> None:
         """Start the server with config watching."""
@@ -109,6 +110,7 @@ class HotReloadServer:
         try:
             from aiohttp import web
 
+            self._web_module = web  # Store for use in handlers
             app = web.Application()
             app.router.add_post("/run", self._handle_run)
             app.router.add_post("/reload", self._handle_reload)
@@ -134,17 +136,17 @@ class HotReloadServer:
             input_text=input_text,
         )
 
-        return web.json_response({"result": result})
+        return self._web_module.json_response({"result": result})
 
     async def _handle_reload(self, request: Any) -> Any:
         """Handle /reload endpoint."""
         await self.runtime.reload()
-        return web.json_response({"status": "reloaded"})
+        return self._web_module.json_response({"status": "reloaded"})
 
     async def _handle_list_agents(self, request: Any) -> Any:
         """Handle /agents endpoint."""
         agents = await self.runtime.list_agents()
-        return web.json_response({"agents": agents})
+        return self._web_module.json_response({"agents": agents})
 
     async def stop(self) -> None:
         """Stop the server."""

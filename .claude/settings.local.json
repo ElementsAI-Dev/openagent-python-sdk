@@ -13,7 +13,8 @@
       "mcp__exa__web_search_exa",
       "mcp__exa__get_code_context_exa",
       "Bash(wc:*)",
-      "mcp__tavily__tavily_extract"
+      "mcp__tavily__tavily_extract",
+      "Bash(uv sync:*)"
     ]
   }
 }

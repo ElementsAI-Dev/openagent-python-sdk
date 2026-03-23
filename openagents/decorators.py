@@ -59,6 +59,18 @@ def tool(name: str | None = None, description: str = ""):
         async def search_tool(params, context):
             ...
     """
+    # Support both @tool and @tool() syntax
+    # If name is a callable (function/class), we're being used as @tool (not @tool())
+    if callable(name):
+        fn_or_cls = name
+        tool_name = getattr(fn_or_cls, "__name__", fn_or_cls.__class__.__name__ if not callable(fn_or_cls) else "tool")
+        _TOOL_REGISTRY[tool_name] = fn_or_cls
+        if callable(fn_or_cls):
+            fn_or_cls._tool_name = tool_name
+            fn_or_cls._tool_description = ""
+            fn_or_cls._is_tool = True
+        return fn_or_cls
+
     def decorator(fn_or_cls: F) -> F:
         tool_name = name or getattr(fn_or_cls, "__name__", fn_or_cls.__class__.__name__ if not callable(fn_or_cls) else "tool")
         _TOOL_REGISTRY[tool_name] = fn_or_cls

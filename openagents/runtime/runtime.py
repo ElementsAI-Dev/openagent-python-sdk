@@ -22,8 +22,10 @@ class Runtime:
         self,
         config: AppConfig,
         _skip_plugin_load: bool = False,  # Internal: skip for backward compat
+        _config_path: Path | None = None,  # Store config path for hot reload
     ):
         self._config = config
+        self._config_path = _config_path
         self._agents_by_id: dict[str, AgentDefinition] = {a.id: a for a in config.agents}
         # Per-session agent plugins: {session_id: {agent_id: plugins}}
         self._session_plugins: dict[str, dict[str, Any]] = {}
@@ -38,11 +40,10 @@ class Runtime:
 
             self._events = AsyncEventBus()
             self._session = InMemorySessionManager()
-            self._runtime = DefaultRuntime(
-                config={},
-                event_bus=self._events,
-                session_manager=self._session,
-            )
+            self._runtime = DefaultRuntime(config={})
+            # Inject dependencies via attributes (like load_runtime_components does)
+            self._runtime._event_bus = self._events
+            self._runtime._session_manager = self._session
         else:
             # Load plugins from config
             components = load_runtime_components(
@@ -66,7 +67,9 @@ class Runtime:
 
     @classmethod
     def from_config(cls, config_path: str | Path) -> "Runtime":
-        return cls(load_config(config_path))
+        path = Path(config_path)
+        config = load_config(path)
+        return cls(config, _config_path=path)
 
     def _get_plugins_for_session(self, session_id: str, agent_id: str) -> Any:
         """Get or create plugins for a specific session.
@@ -105,17 +108,22 @@ class Runtime:
         )
 
     async def reload(self) -> None:
-        """Atomic hot reload - swap config version, keep sessions running.
+        """Atomic hot reload - reload config, swap version, keep sessions running.
 
         New sessions will use the new config.
         Running sessions keep their existing plugins until they complete.
         """
+        if self._config_path is None:
+            raise ConfigError("Cannot reload: no config path available")
+
+        # Reload config from file
+        new_config = load_config(self._config_path)
         old_version = self._config_version
         self._config_version += 1
 
-        # Reload config
-        # Note: In production, we'd watch the file and reload on change
-        # This method can be called externally or by a file watcher
+        # Update config and agent registry
+        self._config = new_config
+        self._agents_by_id = {a.id: a for a in new_config.agents}
 
         # Emit reload event
         await self._events.emit(
@@ -149,6 +157,16 @@ class Runtime:
     def get_session_count(self) -> int:
         """Get number of active sessions."""
         return len(self._session_plugins)
+
+    async def list_agents(self) -> list[dict[str, Any]]:
+        """List all available agents."""
+        return [
+            {
+                "id": agent.id,
+                "name": agent.name,
+            }
+            for agent in self._agents_by_id.values()
+        ]
 
     async def get_agent_info(self, agent_id: str) -> dict[str, Any] | None:
         """Get information about an agent."""

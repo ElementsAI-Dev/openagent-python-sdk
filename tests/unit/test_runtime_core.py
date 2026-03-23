@@ -1,0 +1,304 @@
+"""Tests for Runtime core functionality."""
+
+import asyncio
+import pytest
+
+from openagents.config.loader import load_config_dict
+from openagents.config.schema import AgentDefinition
+from openagents.runtime.runtime import Runtime
+from openagents.errors.exceptions import ConfigError
+
+
+def _minimal_config(agent_id: str = "test_agent") -> dict:
+    return {
+        "version": "1.0",
+        "agents": [
+            {
+                "id": agent_id,
+                "name": "Test Agent",
+                "memory": {"impl": "openagents.plugins.builtin.memory.buffer.BufferMemory", "on_error": "continue"},
+                "pattern": {"impl": "openagents.plugins.builtin.pattern.react.ReActPattern"},
+                "llm": {"provider": "mock"},
+                "tools": [],
+                "runtime": {
+                    "max_steps": 3,
+                    "step_timeout_ms": 1000,
+                    "session_queue_size": 10,
+                    "event_queue_size": 10,
+                },
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_runtime_init_with_skip_plugin_load():
+    """Test Runtime initialization with backward compatibility mode."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    assert runtime.event_bus is not None
+    assert runtime.session_manager is not None
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_run_unknown_agent():
+    """Test that running unknown agent raises ConfigError."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    with pytest.raises(ConfigError, match="Unknown agent id"):
+        await runtime.run(agent_id="nonexistent", session_id="s1", input_text="hello")
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_get_session_count():
+    """Test session count tracking."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    assert runtime.get_session_count() == 0
+
+    # Create a session by getting plugins
+    runtime._get_plugins_for_session("s1", "test_agent")
+
+    assert runtime.get_session_count() == 1
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_get_plugins_for_session():
+    """Test per-session plugin isolation."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    plugins1 = runtime._get_plugins_for_session("s1", "test_agent")
+    plugins2 = runtime._get_plugins_for_session("s2", "test_agent")
+
+    # Different sessions should have different plugin instances
+    assert plugins1 is not plugins2
+
+    # Same session should return same instance
+    plugins1_again = runtime._get_plugins_for_session("s1", "test_agent")
+    assert plugins1 is plugins1_again
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_get_plugins_unknown_agent():
+    """Test that getting plugins for unknown agent raises ConfigError."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    with pytest.raises(ConfigError, match="Unknown agent id"):
+        runtime._get_plugins_for_session("s1", "nonexistent")
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_list_agents():
+    """Test listing all agents."""
+    config = load_config_dict(_minimal_config("agent1"))
+    # Add second agent directly to config
+    config.agents.append(
+        AgentDefinition(
+            id="agent2",
+            name="Agent 2",
+            memory=config.agents[0].memory,
+            pattern=config.agents[0].pattern,
+            llm=config.agents[0].llm,
+            tools=[],
+        )
+    )
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    agents = await runtime.list_agents()
+
+    assert len(agents) == 2
+    assert {"id": "agent1", "name": "Test Agent"} in agents
+    assert {"id": "agent2", "name": "Agent 2"} in agents
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_get_agent_info():
+    """Test getting agent info."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    # Get plugins first to populate session cache
+    runtime._get_plugins_for_session("s1", "test_agent")
+
+    info = await runtime.get_agent_info("test_agent")
+
+    assert info is not None
+    assert info["id"] == "test_agent"
+    assert info["name"] == "Test Agent"
+    assert "memory" in info
+    assert "pattern" in info
+    assert "tools" in info
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_get_agent_info_unknown():
+    """Test getting info for unknown agent."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    info = await runtime.get_agent_info("nonexistent")
+    assert info is None
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_reload_no_config_path():
+    """Test reload without config path raises error."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    with pytest.raises(ConfigError, match="Cannot reload"):
+        await runtime.reload()
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_reload_agent_unknown():
+    """Test reload_agent with unknown agent raises error."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    with pytest.raises(ConfigError, match="Unknown agent id"):
+        await runtime.reload_agent("nonexistent")
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_session():
+    """Test closing a specific session."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    # Create sessions
+    runtime._get_plugins_for_session("s1", "test_agent")
+    runtime._get_plugins_for_session("s2", "test_agent")
+
+    assert runtime.get_session_count() == 2
+
+    await runtime.close_session("s1")
+
+    assert runtime.get_session_count() == 1
+
+    # Closing non-existent session should not error
+    await runtime.close_session("nonexistent")
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_close():
+    """Test close cleans up all resources."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    # Create sessions
+    runtime._get_plugins_for_session("s1", "test_agent")
+    runtime._get_plugins_for_session("s2", "test_agent")
+
+    await runtime.close()
+
+    # Plugins should be cleaned (memory.close() called)
+    # Note: session cache dictionary is not cleared, but plugins are closed
+
+
+@pytest.mark.asyncio
+async def test_runtime_run_with_asyncio():
+    """Test async run method."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    # Use await instead of run_sync
+    result = await runtime.run(agent_id="test_agent", session_id="s1", input_text="hello")
+
+    # The mock LLM should return something
+    assert result is not None
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_properties():
+    """Test runtime properties."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    # Test that properties return expected types
+    assert runtime.event_bus is not None
+    assert runtime.session_manager is not None
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_multiple_sessions_isolation():
+    """Test that multiple sessions are properly isolated."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    # Create multiple sessions for same agent
+    p1 = runtime._get_plugins_for_session("s1", "test_agent")
+    p2 = runtime._get_plugins_for_session("s2", "test_agent")
+    p3 = runtime._get_plugins_for_session("s3", "test_agent")
+
+    # All should be different instances
+    assert p1 is not p2
+    assert p2 is not p3
+    assert p1 is not p3
+
+    assert runtime.get_session_count() == 3
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_reload_agent():
+    """Test reload_agent clears plugin cache."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    # Create a session
+    plugins1 = runtime._get_plugins_for_session("s1", "test_agent")
+
+    # Reload the agent
+    await runtime.reload_agent("test_agent")
+
+    # Session should still exist but plugins cleared
+    # Creating new session should get fresh plugins
+    plugins2 = runtime._get_plugins_for_session("s1", "test_agent")
+
+    # Should be different instances after reload
+    assert plugins1 is not plugins2
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_get_agent_info_no_plugins():
+    """Test get_agent_info when no plugins loaded yet."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    info = await runtime.get_agent_info("test_agent")
+
+    assert info is not None
+    # When no plugins loaded, loaded_plugins should be None
+    assert info["loaded_plugins"]["memory"] is None
+
+    await runtime.close()

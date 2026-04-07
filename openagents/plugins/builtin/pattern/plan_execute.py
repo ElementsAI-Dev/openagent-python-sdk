@@ -33,19 +33,7 @@ class PlanExecutePattern(PatternPlugin):
 
     async def call_tool(self, tool_id: str, params: dict[str, Any] | None = None) -> Any:
         """Call a tool and record result."""
-        ctx = self.context
-        if tool_id not in ctx.tools:
-            raise KeyError(f"Tool '{tool_id}' is not registered")
-        tool = ctx.tools[tool_id]
-        await self.emit("tool.called", tool_id=tool_id, params=params or {})
-        try:
-            result = await tool.invoke(params or {}, ctx)
-            ctx.tool_results.append({"tool_id": tool_id, "result": result})
-            await self.emit("tool.succeeded", tool_id=tool_id, result=result)
-            return result
-        except Exception as exc:
-            await self.emit("tool.failed", tool_id=tool_id, error=str(exc))
-            raise
+        return await super().call_tool(tool_id, params)
 
     async def call_llm(
         self,
@@ -56,18 +44,12 @@ class PlanExecutePattern(PatternPlugin):
         max_tokens: int | None = None,
     ) -> str:
         """Call the LLM."""
-        ctx = self.context
-        if ctx.llm_client is None:
-            raise RuntimeError("No LLM client configured for this agent")
-        await self.emit("llm.called", model=model)
-        result = await ctx.llm_client.complete(
+        return await super().call_llm(
             messages=messages,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        await self.emit("llm.succeeded", model=model)
-        return result
 
     # Pattern-specific methods
 
@@ -108,7 +90,7 @@ class PlanExecutePattern(PatternPlugin):
         history = ctx.memory_view.get("history", [])
         history_text = self._format_history(history)
 
-        return (
+        return self.compose_system_prompt(
             "You are a planner for an agent runtime.\n"
             "Given the user input and conversation history, create a detailed step-by-step plan.\n"
             f"CONVERSATION_HISTORY:\n{history_text}\n"
@@ -123,7 +105,7 @@ class PlanExecutePattern(PatternPlugin):
         history = ctx.memory_view.get("history", [])
         history_text = self._format_history(history)
 
-        return (
+        return self.compose_system_prompt(
             f"Execute step {step_num} of the plan.\n"
             f"Current input: {ctx.input_text}\n"
             f"CONVERSATION_HISTORY:\n{history_text}\n"

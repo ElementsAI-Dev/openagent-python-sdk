@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 from .plugin import BasePlugin
 
@@ -47,6 +47,71 @@ class ToolResult:
     tool_name: str = ""
 
 
+@dataclass
+class ToolExecutionSpec:
+    """Execution metadata for a tool."""
+
+    concurrency_safe: bool = False
+    interrupt_behavior: str = "block"
+    side_effects: str = "unknown"
+    approval_mode: str = "inherit"
+    default_timeout_ms: int | None = None
+    reads_files: bool = False
+    writes_files: bool = False
+
+
+@dataclass
+class PolicyDecision:
+    """Tool execution policy decision."""
+
+    allowed: bool
+    reason: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ToolExecutionRequest:
+    """Structured request for tool execution."""
+
+    tool_id: str
+    tool: Any
+    params: dict[str, Any] = field(default_factory=dict)
+    context: Any = None
+    execution_spec: ToolExecutionSpec = field(default_factory=ToolExecutionSpec)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ToolExecutionResult:
+    """Structured result for tool execution."""
+
+    tool_id: str
+    success: bool
+    data: Any = None
+    error: str | None = None
+    exception: Exception | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@runtime_checkable
+class ExecutionPolicy(Protocol):
+    """Policy hook for tool execution."""
+
+    async def evaluate(self, request: ToolExecutionRequest) -> PolicyDecision: ...
+
+
+@runtime_checkable
+class ToolExecutor(Protocol):
+    """Executor hook between patterns and tool implementations."""
+
+    async def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult: ...
+
+    async def execute_stream(
+        self,
+        request: ToolExecutionRequest,
+    ) -> AsyncIterator[dict[str, Any]]: ...
+
+
 class ToolPlugin(BasePlugin):
     """Base tool plugin."""
 
@@ -70,6 +135,10 @@ class ToolPlugin(BasePlugin):
             Tool result
         """
         raise NotImplementedError("ToolPlugin.invoke must be implemented")
+
+    def execution_spec(self) -> ToolExecutionSpec:
+        """Return execution metadata for this tool."""
+        return ToolExecutionSpec()
 
     async def invoke_stream(
         self, params: dict[str, Any], context: Any
@@ -160,4 +229,3 @@ class ToolPlugin(BasePlugin):
             Fallback result, or re-raise the original error if no fallback available
         """
         raise error
-

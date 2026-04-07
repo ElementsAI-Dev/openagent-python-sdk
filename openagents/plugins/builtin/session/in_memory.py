@@ -6,7 +6,14 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
-from openagents.interfaces.session import SESSION_MANAGE, SESSION_STATE, SessionManagerPlugin
+from openagents.interfaces.session import (
+    SESSION_ARTIFACTS,
+    SESSION_CHECKPOINTS,
+    SESSION_MANAGE,
+    SESSION_STATE,
+    SESSION_TRANSCRIPT,
+    SessionManagerPlugin,
+)
 
 
 class InMemorySessionManager(SessionManagerPlugin):
@@ -19,7 +26,13 @@ class InMemorySessionManager(SessionManagerPlugin):
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(
             config=config or {},
-            capabilities={SESSION_MANAGE, SESSION_STATE},
+            capabilities={
+                SESSION_MANAGE,
+                SESSION_STATE,
+                SESSION_TRANSCRIPT,
+                SESSION_ARTIFACTS,
+                SESSION_CHECKPOINTS,
+            },
         )
         self._locks: dict[str, asyncio.Lock] = {}
         self._states: dict[str, dict] = {}

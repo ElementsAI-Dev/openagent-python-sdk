@@ -32,19 +32,7 @@ class ReActPattern(PatternPlugin):
 
     async def call_tool(self, tool_id: str, params: dict[str, Any] | None = None) -> Any:
         """Call a tool and record result."""
-        ctx = self.context
-        if tool_id not in ctx.tools:
-            raise KeyError(f"Tool '{tool_id}' is not registered")
-        tool = ctx.tools[tool_id]
-        await self.emit("tool.called", tool_id=tool_id, params=params or {})
-        try:
-            result = await tool.invoke(params or {}, ctx)
-            ctx.tool_results.append({"tool_id": tool_id, "result": result})
-            await self.emit("tool.succeeded", tool_id=tool_id, result=result)
-            return result
-        except Exception as exc:
-            await self.emit("tool.failed", tool_id=tool_id, error=str(exc))
-            raise
+        return await super().call_tool(tool_id, params)
 
     async def call_llm(
         self,
@@ -55,18 +43,12 @@ class ReActPattern(PatternPlugin):
         max_tokens: int | None = None,
     ) -> str:
         """Call the LLM."""
-        ctx = self.context
-        if ctx.llm_client is None:
-            raise RuntimeError("No LLM client configured for this agent")
-        await self.emit("llm.called", model=model)
-        result = await ctx.llm_client.complete(
+        return await super().call_llm(
             messages=messages,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        await self.emit("llm.succeeded", model=model)
-        return result
 
     # Pattern-specific methods
 
@@ -96,7 +78,7 @@ class ReActPattern(PatternPlugin):
         return ctx.llm_client is not None
 
     def _llm_system_prompt(self) -> str:
-        return (
+        return self.compose_system_prompt(
             "You are a strict planner for an agent runtime.\n"
             "Return only JSON with one of these shapes:\n"
             '{"type":"final","content":"..."}\n'
@@ -124,6 +106,32 @@ class ReActPattern(PatternPlugin):
 
         return "\n".join(lines) if lines else "(no conversation history)"
 
+    def _format_tools_description(self) -> str:
+        """Format tool descriptions for LLM prompt."""
+        ctx = self.context
+        lines = []
+        for tool_id in sorted(ctx.tools.keys()):
+            tool = ctx.tools[tool_id]
+            desc = tool.describe() if hasattr(tool, "describe") else {}
+            description = desc.get("description", "")
+            params_schema = desc.get("parameters", {})
+            props = params_schema.get("properties", {})
+            required = params_schema.get("required", [])
+
+            param_parts = []
+            for pname, pinfo in props.items():
+                ptype = pinfo.get("type", "any")
+                pdesc = pinfo.get("description", "")
+                req_marker = " (required)" if pname in required else ""
+                param_parts.append(f"    {pname}: {ptype}{req_marker} — {pdesc}")
+
+            tool_line = f"  - {tool_id}: {description}" if description else f"  - {tool_id}"
+            lines.append(tool_line)
+            if param_parts:
+                lines.extend(param_parts)
+
+        return "\n".join(lines) if lines else "  (none)"
+
     def _llm_user_prompt(self) -> str:
         ctx = self.context
         history = ctx.memory_view.get("history")
@@ -131,12 +139,13 @@ class ReActPattern(PatternPlugin):
             history = []
 
         history_text = self._format_history(history)
-        tool_ids = sorted(ctx.tools.keys())
+        tools_text = self._format_tools_description()
         return (
             f"INPUT:{ctx.input_text}\n"
             f"CONVERSATION_HISTORY:\n{history_text}\n"
-            f"AVAILABLE_TOOLS:{','.join(tool_ids)}\n"
-            "Prefer tool_call when user explicitly asks for tool usage.\n"
+            f"AVAILABLE_TOOLS:\n{tools_text}\n"
+            "Prefer tool_call when user explicitly asks for tool usage. "
+            "params must match the tool's parameter schema.\n"
             "If no tool is needed, return final."
         )
 

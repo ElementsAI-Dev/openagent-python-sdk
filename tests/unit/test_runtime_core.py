@@ -5,6 +5,8 @@ import pytest
 
 from openagents.config.loader import load_config_dict
 from openagents.config.schema import AgentDefinition
+from openagents.interfaces.runtime import RunRequest
+from openagents.interfaces.session import SessionArtifact
 from openagents.runtime.runtime import Runtime
 from openagents.errors.exceptions import ConfigError
 
@@ -19,6 +21,7 @@ def _minimal_config(agent_id: str = "test_agent") -> dict:
                 "memory": {"impl": "openagents.plugins.builtin.memory.buffer.BufferMemory", "on_error": "continue"},
                 "pattern": {"impl": "openagents.plugins.builtin.pattern.react.ReActPattern"},
                 "llm": {"provider": "mock"},
+                "skill": {"impl": "tests.fixtures.custom_plugins.CustomSkill"},
                 "tools": [],
                 "runtime": {
                     "max_steps": 3,
@@ -141,7 +144,9 @@ async def test_runtime_get_agent_info():
     assert info["name"] == "Test Agent"
     assert "memory" in info
     assert "pattern" in info
+    assert "skill" in info
     assert "tools" in info
+    assert info["loaded_plugins"]["skill"] == "CustomSkill"
     await runtime.close()
 
 
@@ -300,5 +305,54 @@ async def test_runtime_get_agent_info_no_plugins():
     assert info is not None
     # When no plugins loaded, loaded_plugins should be None
     assert info["loaded_plugins"]["memory"] is None
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_run_detailed_returns_structured_result():
+    """Test structured runtime result path."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    result = await runtime.run_detailed(
+        request=RunRequest(
+            agent_id="test_agent",
+            session_id="s1",
+            input_text="hello",
+        )
+    )
+
+    assert result.run_id
+    assert result.final_output is not None
+    assert result.stop_reason == "completed"
+    assert result.metadata["agent_id"] == "test_agent"
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_session_manager_supports_artifacts_and_checkpoints():
+    """Test extended session manager contract."""
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+
+    await runtime.session_manager.append_message("s1", {"role": "user", "content": "hello"})
+    await runtime.session_manager.save_artifact(
+        "s1",
+        SessionArtifact(name="note.txt", kind="text", payload="payload"),
+    )
+    checkpoint = await runtime.session_manager.create_checkpoint("s1", "cp1")
+
+    messages = await runtime.session_manager.load_messages("s1")
+    artifacts = await runtime.session_manager.list_artifacts("s1")
+    loaded = await runtime.session_manager.load_checkpoint("s1", "cp1")
+
+    assert messages == [{"role": "user", "content": "hello"}]
+    assert len(artifacts) == 1
+    assert artifacts[0].name == "note.txt"
+    assert checkpoint.checkpoint_id == "cp1"
+    assert loaded is not None
+    assert loaded.checkpoint_id == "cp1"
 
     await runtime.close()

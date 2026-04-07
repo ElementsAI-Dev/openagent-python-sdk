@@ -4,6 +4,7 @@ import time
 import pytest
 
 from openagents.config.loader import load_config_dict
+from openagents.interfaces.runtime import RunRequest
 from openagents.runtime.runtime import Runtime
 
 
@@ -17,6 +18,7 @@ def _payload(memory_impl: str, pattern_impl: str, *, on_error: str = "continue")
                 "memory": {"impl": memory_impl, "on_error": on_error},
                 "pattern": {"impl": pattern_impl},
                 "llm": {"provider": "mock"},
+                "skill": None,
                 "tools": [],
                 "runtime": {
                     "max_steps": 8,
@@ -105,3 +107,56 @@ async def test_runtime_same_session_serial_execution():
 
     assert elapsed >= 0.09
 
+
+@pytest.mark.asyncio
+async def test_runtime_applies_skill_prompt_and_metadata():
+    payload = _payload(
+        "tests.fixtures.runtime_plugins.InjectWritebackMemory",
+        "tests.fixtures.runtime_plugins.PromptAwarePattern",
+    )
+    payload["agents"][0]["skill"] = {
+        "impl": "tests.fixtures.runtime_plugins.RuntimePromptSkill",
+        "config": {"focus": "training"},
+    }
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+
+    result = await runtime.run(
+        agent_id="assistant",
+        session_id="s1",
+        input_text="help me tune learning rate",
+    )
+
+    assert result["active_skill"] == "RuntimePromptSkill"
+    assert result["metadata"]["focus"] == "training"
+    assert result["prompt"] == ["You are the training specialist."]
+
+
+@pytest.mark.asyncio
+async def test_runtime_persists_transcript_and_artifacts():
+    payload = _payload(
+        "tests.fixtures.runtime_plugins.InjectWritebackMemory",
+        "tests.fixtures.runtime_plugins.ArtifactPattern",
+    )
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+
+    result = await runtime.run_detailed(
+        request=RunRequest(
+            agent_id="assistant",
+            session_id="artifact-session",
+            input_text="generate a report",
+        )
+    )
+
+    transcript = await runtime.session_manager.load_messages("artifact-session")
+    artifacts = await runtime.session_manager.list_artifacts("artifact-session")
+
+    assert result.final_output == "artifact-done"
+    assert result.stop_reason == "completed"
+    assert len(result.artifacts) == 1
+    assert result.artifacts[0].name == "report.txt"
+    assert [item["role"] for item in transcript] == ["user", "assistant"]
+    assert transcript[1]["content"] == "artifact-done"
+    assert len(artifacts) == 1
+    assert artifacts[0].name == "report.txt"

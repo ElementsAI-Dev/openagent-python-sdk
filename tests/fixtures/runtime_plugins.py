@@ -3,7 +3,15 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from openagents.interfaces.capabilities import MEMORY_INJECT, MEMORY_WRITEBACK, PATTERN_EXECUTE, PATTERN_REACT
+from openagents.interfaces.capabilities import (
+    MEMORY_INJECT,
+    MEMORY_WRITEBACK,
+    PATTERN_EXECUTE,
+    PATTERN_REACT,
+    SKILL_METADATA,
+    SKILL_SYSTEM_PROMPT,
+)
+from openagents.interfaces.runtime import RunArtifact
 
 
 class InjectWritebackMemory:
@@ -329,3 +337,81 @@ class FailOnceThenFinalPattern:
     async def execute(self) -> Any:
         action = await self.react()
         return action.get("content")
+
+
+class PromptAwarePattern:
+    def __init__(self, config: dict[str, Any] | None = None):
+        self.config = config or {}
+        self.capabilities = {PATTERN_EXECUTE, PATTERN_REACT}
+        self.context = None
+
+    async def setup(self, agent_id: str, session_id: str, input_text: str, state: dict[str, Any], tools: dict[str, Any], llm_client: Any, llm_options: Any, event_bus: Any) -> None:
+        from openagents.interfaces.pattern import ExecutionContext
+        self.context = ExecutionContext(
+            agent_id=agent_id,
+            session_id=session_id,
+            input_text=input_text,
+            state=state,
+            tools=tools,
+            llm_client=llm_client,
+            llm_options=llm_options,
+            event_bus=event_bus,
+        )
+
+    async def react(self) -> dict[str, Any]:
+        return {"type": "final", "content": "prompt-aware"}
+
+    async def execute(self) -> Any:
+        return {
+            "active_skill": self.context.active_skill,
+            "prompt": list(self.context.system_prompt_fragments),
+            "metadata": dict(self.context.skill_metadata),
+            "tools": sorted(self.context.tools.keys()),
+        }
+
+
+class ArtifactPattern:
+    def __init__(self, config: dict[str, Any] | None = None):
+        self.config = config or {}
+        self.capabilities = {PATTERN_EXECUTE, PATTERN_REACT}
+        self.context = None
+
+    async def setup(self, agent_id: str, session_id: str, input_text: str, state: dict[str, Any], tools: dict[str, Any], llm_client: Any, llm_options: Any, event_bus: Any) -> None:
+        from openagents.interfaces.pattern import ExecutionContext
+        self.context = ExecutionContext(
+            agent_id=agent_id,
+            session_id=session_id,
+            input_text=input_text,
+            state=state,
+            tools=tools,
+            llm_client=llm_client,
+            llm_options=llm_options,
+            event_bus=event_bus,
+        )
+
+    async def react(self) -> dict[str, Any]:
+        return {"type": "final", "content": "artifact-done"}
+
+    async def execute(self) -> Any:
+        self.context.artifacts.append(
+            RunArtifact(
+                name="report.txt",
+                kind="text",
+                payload="artifact payload",
+                metadata={"source": "ArtifactPattern"},
+            )
+        )
+        return "artifact-done"
+
+
+class RuntimePromptSkill:
+    def __init__(self, config: dict[str, Any] | None = None):
+        self.config = config or {}
+        self.capabilities = {SKILL_SYSTEM_PROMPT, SKILL_METADATA}
+
+    def get_system_prompt(self, context: Any | None = None) -> str:
+        focus = self.config.get("focus", "training")
+        return f"You are the {focus} specialist."
+
+    def get_metadata(self) -> dict[str, Any]:
+        return {"focus": self.config.get("focus", "training")}

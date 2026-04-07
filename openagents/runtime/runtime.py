@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 from typing import Any
 
 from openagents.config.loader import load_config
 from openagents.config.schema import AgentDefinition, AppConfig
 from openagents.errors.exceptions import ConfigError
+from openagents.interfaces.runtime import RUN_STOP_FAILED, RunBudget, RunRequest, RunResult
 from openagents.plugins.loader import load_agent_plugins, load_runtime_components
 
 
@@ -95,20 +97,71 @@ class Runtime:
         return self._session_plugins[session_id][agent_id]
 
     async def run(self, *, agent_id: str, session_id: str, input_text: str) -> Any:
-        """Execute an agent run."""
+        """Execute an agent run and return the legacy final output."""
+        result = await self.run_detailed(
+            request=RunRequest(
+                agent_id=agent_id,
+                session_id=session_id,
+                input_text=input_text,
+                budget=self._build_budget(agent_id),
+            )
+        )
+        if result.exception is not None:
+            raise result.exception
+        if result.stop_reason == RUN_STOP_FAILED:
+            raise RuntimeError(result.error or "Agent run failed")
+        return result.final_output
+
+    async def run_detailed(self, *, request: RunRequest) -> RunResult:
+        """Execute an agent run and return structured runtime details."""
+        agent = self._agents_by_id.get(request.agent_id)
+        if agent is None:
+            raise ConfigError(f"Unknown agent id: '{request.agent_id}'")
+
+        plugins = self._get_plugins_for_session(request.session_id, request.agent_id)
+        return await self._run_runtime(request=request, plugins=plugins)
+
+    def _build_budget(self, agent_id: str) -> RunBudget | None:
         agent = self._agents_by_id.get(agent_id)
         if agent is None:
-            raise ConfigError(f"Unknown agent id: '{agent_id}'")
+            return None
+        return RunBudget(
+            max_steps=agent.runtime.max_steps,
+            max_duration_ms=agent.runtime.step_timeout_ms,
+        )
 
-        plugins = self._get_plugins_for_session(session_id, agent_id)
+    async def _run_runtime(self, *, request: RunRequest, plugins: Any) -> RunResult:
+        run_signature = inspect.signature(self._runtime.run).parameters
+        supports_request = (
+            "request" in run_signature
+            or any(param.kind is inspect.Parameter.VAR_KEYWORD for param in run_signature.values())
+        )
+        if supports_request:
+            result = await self._runtime.run(
+                request=request,
+                app_config=self._config,
+                agents_by_id=self._agents_by_id,
+                agent_plugins=plugins,
+            )
+        else:
+            result = await self._runtime.run(
+                agent_id=request.agent_id,
+                session_id=request.session_id,
+                input_text=request.input_text,
+                app_config=self._config,
+                agents_by_id=self._agents_by_id,
+                agent_plugins=plugins,
+            )
 
-        return await self._runtime.run(
-            agent_id=agent_id,
-            session_id=session_id,
-            input_text=input_text,
-            app_config=self._config,
-            agents_by_id=self._agents_by_id,
-            agent_plugins=plugins,
+        if isinstance(result, RunResult):
+            return result
+        return RunResult(
+            run_id=request.run_id,
+            final_output=result,
+            metadata={
+                "agent_id": request.agent_id,
+                "session_id": request.session_id,
+            },
         )
 
     async def reload(self) -> None:
@@ -217,10 +270,15 @@ class Runtime:
                 "type": agent.pattern.type,
                 "impl": agent.pattern.impl,
             },
+            "skill": {
+                "type": agent.skill.type if agent.skill else None,
+                "impl": agent.skill.impl if agent.skill else None,
+            },
             "tools": [t.id for t in agent.tools if t.enabled],
             "loaded_plugins": {
                 "memory": type(plugins.memory).__name__ if plugins else None,
                 "pattern": type(plugins.pattern).__name__ if plugins else None,
+                "skill": type(plugins.skill).__name__ if plugins and plugins.skill else None,
                 "tools": list(plugins.tools.keys()) if plugins else [],
             },
         }

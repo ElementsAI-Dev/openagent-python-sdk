@@ -93,12 +93,12 @@ async def test_step_timeout_is_enforced():
         load_config_dict(
             _payload(
                 pattern_impl="tests.fixtures.runtime_plugins.SlowContinuePattern",
-                pattern_config={"delay": 0.05, "step_timeout_ms": 10},
+                pattern_config={"delay": 0.05},
                 step_timeout_ms=10,
             )
         )
     )
-    with pytest.raises(TimeoutError, match="Pattern step timed out"):
+    with pytest.raises(TimeoutError, match=r"Pattern step timed out after 10ms at step 0"):
         await runtime.run(agent_id="assistant", session_id="s1", input_text="x")
 
 
@@ -112,7 +112,7 @@ async def test_max_steps_is_enforced():
             )
         )
     )
-    with pytest.raises(RuntimeError, match="Pattern exceeded max_steps"):
+    with pytest.raises(RuntimeError, match=r"Pattern exceeded max_steps \(2\)"):
         await runtime.run(agent_id="assistant", session_id="s1", input_text="x")
 
 
@@ -131,4 +131,3 @@ async def test_session_lock_releases_after_failure():
 
     result = await runtime.run(agent_id="assistant", session_id="same", input_text="x")
     assert result == "recovered"
-

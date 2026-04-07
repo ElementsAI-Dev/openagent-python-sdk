@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from openagents.interfaces.capabilities import PATTERN_EXECUTE, PATTERN_REACT
 from openagents.interfaces.pattern import PatternPlugin
+
+logger = logging.getLogger(__name__)
 
 
 class ReflexionPattern(PatternPlugin):
@@ -34,19 +37,7 @@ class ReflexionPattern(PatternPlugin):
 
     async def call_tool(self, tool_id: str, params: dict[str, Any] | None = None) -> Any:
         """Call a tool and record result."""
-        ctx = self.context
-        if tool_id not in ctx.tools:
-            raise KeyError(f"Tool '{tool_id}' is not registered")
-        tool = ctx.tools[tool_id]
-        await self.emit("tool.called", tool_id=tool_id, params=params or {})
-        try:
-            result = await tool.invoke(params or {}, ctx)
-            ctx.tool_results.append({"tool_id": tool_id, "result": result})
-            await self.emit("tool.succeeded", tool_id=tool_id, result=result)
-            return result
-        except Exception as exc:
-            await self.emit("tool.failed", tool_id=tool_id, error=str(exc))
-            raise
+        return await super().call_tool(tool_id, params)
 
     async def call_llm(
         self,
@@ -57,18 +48,12 @@ class ReflexionPattern(PatternPlugin):
         max_tokens: int | None = None,
     ) -> str:
         """Call the LLM."""
-        ctx = self.context
-        if ctx.llm_client is None:
-            raise RuntimeError("No LLM client configured for this agent")
-        await self.emit("llm.called", model=model)
-        result = await ctx.llm_client.complete(
+        return await super().call_llm(
             messages=messages,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        await self.emit("llm.succeeded", model=model)
-        return result
 
     # Pattern-specific methods
 
@@ -120,7 +105,7 @@ class ReflexionPattern(PatternPlugin):
                 results.append(f"{tool_id}: {result}")
             results_text = f"Recent tool results: {', '.join(results)}\n"
 
-        return (
+        return self.compose_system_prompt(
             f"You are reflecting on the agent's recent actions.\n"
             f"CONVERSATION_HISTORY:\n{history_text}\n"
             f"{results_text}"
@@ -139,7 +124,7 @@ class ReflexionPattern(PatternPlugin):
         history = ctx.memory_view.get("history", [])
         history_text = self._format_history(history)
 
-        return (
+        return self.compose_system_prompt(
             f"Input: {ctx.input_text}\n"
             f"CONVERSATION_HISTORY:\n{history_text}\n"
             f"Available tools: {', '.join(tool_ids)}\n"
@@ -191,7 +176,7 @@ class ReflexionPattern(PatternPlugin):
                     if tool_id:
                         return {"type": "tool_call", "tool": tool_id, "params": params}
             except Exception:
-                pass  # Fall through to normal action
+                logger.debug("Failed to parse reflection response, falling through to normal action", exc_info=True)
 
         # Normal action selection
         if self._llm_enabled():

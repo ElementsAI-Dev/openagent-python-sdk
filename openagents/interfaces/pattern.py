@@ -9,6 +9,8 @@ from .plugin import BasePlugin
 
 if TYPE_CHECKING:
     from .events import EventBusPlugin
+    from .runtime import RunArtifact, RunRequest, RunUsage
+    from .tool import ExecutionPolicy, ToolExecutor
 
 
 @dataclass
@@ -26,6 +28,15 @@ class ExecutionContext:
     memory_view: dict[str, Any] = field(default_factory=dict)
     tool_results: list[dict[str, Any]] = field(default_factory=list)
     scratch: dict[str, Any] = field(default_factory=dict)
+    active_skill: str | None = None
+    skill_metadata: dict[str, Any] = field(default_factory=dict)
+    system_prompt_fragments: list[str] = field(default_factory=list)
+    transcript: list[dict[str, Any]] = field(default_factory=list)
+    run_request: "RunRequest | None" = None
+    tool_executor: "ToolExecutor | None" = None
+    execution_policy: "ExecutionPolicy | None" = None
+    usage: "RunUsage | None" = None
+    artifacts: list["RunArtifact"] = field(default_factory=list)
 
 
 class PatternPlugin(BasePlugin):
@@ -47,6 +58,12 @@ class PatternPlugin(BasePlugin):
         llm_client: Any,
         llm_options: Any,
         event_bus: "EventBusPlugin",
+        transcript: list[dict[str, Any]] | None = None,
+        run_request: "RunRequest | None" = None,
+        tool_executor: "ToolExecutor | None" = None,
+        execution_policy: "ExecutionPolicy | None" = None,
+        usage: "RunUsage | None" = None,
+        artifacts: list["RunArtifact"] | None = None,
     ) -> None:
         """Setup pattern with runtime data.
 
@@ -61,6 +78,12 @@ class PatternPlugin(BasePlugin):
             llm_client=llm_client,
             llm_options=llm_options,
             event_bus=event_bus,
+            transcript=list(transcript or []),
+            run_request=run_request,
+            tool_executor=tool_executor,
+            execution_policy=execution_policy,
+            usage=usage,
+            artifacts=artifacts or [],
         )
 
     async def execute(self) -> Any:
@@ -116,6 +139,8 @@ class PatternPlugin(BasePlugin):
         try:
             result = await tool.invoke(params or {}, ctx)
             ctx.tool_results.append({"tool_id": tool_id, "result": result})
+            if ctx.usage is not None:
+                ctx.usage.tool_calls += 1
             await self.emit("tool.succeeded", tool_id=tool_id, result=result)
             return result
         except Exception as exc:
@@ -149,8 +174,22 @@ class PatternPlugin(BasePlugin):
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        if ctx.usage is not None:
+            ctx.usage.llm_calls += 1
         await self.emit("llm.succeeded", model=model)
         return result
+
+    def compose_system_prompt(self, base_prompt: str) -> str:
+        """Merge runtime/system fragments into one system prompt."""
+        ctx = self.context
+        fragments = [base_prompt.strip()]
+        if ctx is not None:
+            fragments.extend(
+                fragment.strip()
+                for fragment in ctx.system_prompt_fragments
+                if isinstance(fragment, str) and fragment.strip()
+            )
+        return "\n\n".join(fragment for fragment in fragments if fragment)
 
     async def compress_context(self) -> None:
         """Compress context when it grows too large.
@@ -161,3 +200,24 @@ class PatternPlugin(BasePlugin):
         Override to implement context compression (e.g., summarization, truncation).
         """
         pass
+
+    def add_artifact(
+        self,
+        *,
+        name: str,
+        payload: Any,
+        kind: str = "generic",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a run artifact on the current execution context."""
+        from .runtime import RunArtifact
+
+        ctx = self.context
+        ctx.artifacts.append(
+            RunArtifact(
+                name=name,
+                kind=kind,
+                payload=payload,
+                metadata=dict(metadata or {}),
+            )
+        )

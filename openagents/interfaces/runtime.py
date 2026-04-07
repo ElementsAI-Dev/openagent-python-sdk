@@ -2,9 +2,75 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 from .plugin import BasePlugin
+
+
+RUN_STOP_COMPLETED = "completed"
+RUN_STOP_FAILED = "failed"
+RUN_STOP_CANCELLED = "cancelled"
+RUN_STOP_TIMEOUT = "timeout"
+
+
+@dataclass
+class RunBudget:
+    """Optional execution budget for a single run."""
+
+    max_steps: int | None = None
+    max_duration_ms: int | None = None
+    max_tool_calls: int | None = None
+
+
+@dataclass
+class RunArtifact:
+    """Artifact emitted by a run."""
+
+    name: str
+    kind: str = "generic"
+    payload: Any = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RunUsage:
+    """Usage statistics collected during a run."""
+
+    llm_calls: int = 0
+    tool_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass
+class RunRequest:
+    """Structured runtime request."""
+
+    agent_id: str
+    session_id: str
+    input_text: str
+    run_id: str = field(default_factory=lambda: str(uuid4()))
+    parent_run_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    context_hints: dict[str, Any] = field(default_factory=dict)
+    budget: RunBudget | None = None
+
+
+@dataclass
+class RunResult:
+    """Structured runtime result."""
+
+    run_id: str
+    final_output: Any = None
+    stop_reason: str = RUN_STOP_COMPLETED
+    usage: RunUsage = field(default_factory=RunUsage)
+    artifacts: list[RunArtifact] = field(default_factory=list)
+    error: str | None = None
+    exception: Exception | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RuntimePlugin(BasePlugin):
@@ -42,19 +108,17 @@ class RuntimePlugin(BasePlugin):
     async def run(
         self,
         *,
-        agent_id: str,
-        session_id: str,
-        input_text: str,
-    ) -> Any:
-        """Execute an agent run with the given inputs.
+        request: RunRequest,
+        **kwargs: Any,
+    ) -> RunResult:
+        """Execute an agent run with the given request.
 
         Args:
-            agent_id: The agent to run
-            session_id: Session identifier for isolation
-            input_text: User input
+            request: Structured run request
+            **kwargs: Runtime-specific execution dependencies
 
         Returns:
-            The execution result
+            Structured execution result
         """
         raise NotImplementedError("RuntimePlugin.run must be implemented")
 

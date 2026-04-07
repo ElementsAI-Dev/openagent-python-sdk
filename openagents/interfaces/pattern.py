@@ -9,6 +9,7 @@ from .plugin import BasePlugin
 
 if TYPE_CHECKING:
     from .events import EventBusPlugin
+    from .session import SessionArtifact
     from .runtime import RunArtifact, RunRequest, RunUsage
     from .tool import ExecutionPolicy, ToolExecutor
 
@@ -32,6 +33,8 @@ class ExecutionContext:
     skill_metadata: dict[str, Any] = field(default_factory=dict)
     system_prompt_fragments: list[str] = field(default_factory=list)
     transcript: list[dict[str, Any]] = field(default_factory=list)
+    session_artifacts: list["SessionArtifact"] = field(default_factory=list)
+    assembly_metadata: dict[str, Any] = field(default_factory=dict)
     run_request: "RunRequest | None" = None
     tool_executor: "ToolExecutor | None" = None
     execution_policy: "ExecutionPolicy | None" = None
@@ -59,6 +62,8 @@ class PatternPlugin(BasePlugin):
         llm_options: Any,
         event_bus: "EventBusPlugin",
         transcript: list[dict[str, Any]] | None = None,
+        session_artifacts: list["SessionArtifact"] | None = None,
+        assembly_metadata: dict[str, Any] | None = None,
         run_request: "RunRequest | None" = None,
         tool_executor: "ToolExecutor | None" = None,
         execution_policy: "ExecutionPolicy | None" = None,
@@ -79,6 +84,8 @@ class PatternPlugin(BasePlugin):
             llm_options=llm_options,
             event_bus=event_bus,
             transcript=list(transcript or []),
+            session_artifacts=list(session_artifacts or []),
+            assembly_metadata=dict(assembly_metadata or {}),
             run_request=run_request,
             tool_executor=tool_executor,
             execution_policy=execution_policy,

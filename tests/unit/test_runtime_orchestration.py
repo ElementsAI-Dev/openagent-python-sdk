@@ -5,6 +5,7 @@ import pytest
 
 from openagents.config.loader import load_config_dict
 from openagents.interfaces.runtime import RunRequest
+from openagents.interfaces.session import SessionArtifact
 from openagents.runtime.runtime import Runtime
 
 
@@ -253,3 +254,47 @@ async def test_runtime_uses_configured_execution_policy():
 
     assert result.stop_reason == "failed"
     assert "blocked by DenyToolExecutionPolicy" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_runtime_uses_configured_context_assembler():
+    payload = _payload(
+        "tests.fixtures.runtime_plugins.InjectWritebackMemory",
+        "tests.fixtures.runtime_plugins.ContextAwarePattern",
+    )
+    payload["runtime"] = {
+        "type": "default",
+        "config": {
+            "context_assembler": {
+                "impl": "tests.fixtures.runtime_plugins.SummarizingContextAssembler",
+                "config": {"prefix": "assembled"},
+            }
+        },
+    }
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+
+    await runtime.session_manager.append_message(
+        "assembled-session",
+        {"role": "user", "content": "earlier"},
+    )
+    await runtime.session_manager.save_artifact(
+        "assembled-session",
+        SessionArtifact(name="existing.txt", kind="text", payload="seed"),
+    )
+
+    result = await runtime.run(
+        agent_id="assistant",
+        session_id="assembled-session",
+        input_text="hello",
+    )
+
+    session_state = await runtime.session_manager.get_state("assembled-session")
+    artifacts = await runtime.session_manager.list_artifacts("assembled-session")
+
+    assert result["transcript_count"] == 2
+    assert result["artifact_names"] == ["existing.txt"]
+    assert result["assembly_metadata"]["assembler"] == "assembled"
+    assert session_state["assembler_seen"] is True
+    assert session_state["assembler_finalized"] is True
+    assert any(artifact.name == "assembly-summary.txt" for artifact in artifacts)

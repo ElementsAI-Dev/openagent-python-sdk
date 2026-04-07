@@ -375,3 +375,22 @@ async def test_runtime_rejects_invalid_execution_policy_dependency():
 
     with pytest.raises(TypeError, match="must implement 'evaluate'"):
         await runtime.run(agent_id="test_agent", session_id="s1", input_text="hello")
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_invalid_context_assembler_dependency():
+    """Test runtime config rejects context assembler without required methods."""
+    payload = _minimal_config()
+    payload["runtime"] = {
+        "type": "default",
+        "config": {
+            "context_assembler": {
+                "impl": "tests.fixtures.runtime_plugins.BadContextAssembler",
+            }
+        },
+    }
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+
+    with pytest.raises(TypeError, match="must implement 'assemble'"):
+        await runtime.run(agent_id="test_agent", session_id="s1", input_text="hello")

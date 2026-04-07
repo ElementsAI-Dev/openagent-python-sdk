@@ -15,6 +15,7 @@ from .capabilities import (
     SKILL_TOOLS,
     TOOL_INVOKE,
 )
+from .context import ContextAssemblerPlugin, ContextAssemblyResult
 from .events import (
     EventBusPlugin,
     EVENT_EMIT,
@@ -69,6 +70,8 @@ from .tool import (
 __all__ = [
     "BasePlugin",
     "ExecutionContext",
+    "ContextAssemblerPlugin",
+    "ContextAssemblyResult",
     "MemoryPlugin",
     "PatternPlugin",
     "SkillPlugin",

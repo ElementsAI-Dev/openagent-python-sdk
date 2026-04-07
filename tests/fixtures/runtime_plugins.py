@@ -16,7 +16,9 @@ from openagents.interfaces.capabilities import (
     SKILL_TOOL_FILTER,
     SKILL_TOOLS,
 )
+from openagents.interfaces.context import ContextAssemblyResult
 from openagents.interfaces.runtime import RunArtifact
+from openagents.interfaces.session import SessionArtifact
 from openagents.interfaces.tool import PolicyDecision, ToolExecutionResult
 
 
@@ -437,6 +439,40 @@ class ToolCallingPattern:
         return await tool.invoke({"value": self.context.input_text}, self.context)
 
 
+class ContextAwarePattern:
+    def __init__(self, config: dict[str, Any] | None = None):
+        self.config = config or {}
+        self.capabilities = {PATTERN_EXECUTE, PATTERN_REACT}
+        self.context = None
+
+    async def setup(self, agent_id: str, session_id: str, input_text: str, state: dict[str, Any], tools: dict[str, Any], llm_client: Any, llm_options: Any, event_bus: Any) -> None:
+        from openagents.interfaces.pattern import ExecutionContext
+        self.context = ExecutionContext(
+            agent_id=agent_id,
+            session_id=session_id,
+            input_text=input_text,
+            state=state,
+            tools=tools,
+            llm_client=llm_client,
+            llm_options=llm_options,
+            event_bus=event_bus,
+        )
+
+    async def react(self) -> dict[str, Any]:
+        return {"type": "final", "content": "context-aware"}
+
+    async def execute(self) -> Any:
+        return {
+            "transcript_count": len(self.context.transcript),
+            "artifact_names": [artifact.name for artifact in self.context.session_artifacts],
+            "assembly_metadata": dict(self.context.assembly_metadata),
+            "state": {
+                "assembler_seen": self.context.state.get("assembler_seen"),
+                "assembler_finalized": self.context.state.get("assembler_finalized"),
+            },
+        }
+
+
 class RuntimePromptSkill:
     def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or {}
@@ -544,3 +580,49 @@ class DenyToolExecutionPolicy:
                 reason=f"Tool '{request.tool_id}' blocked by DenyToolExecutionPolicy",
             )
         return PolicyDecision(allowed=True, metadata={"policy": "custom"})
+
+
+class SummarizingContextAssembler:
+    def __init__(self, config: dict[str, Any] | None = None):
+        self.config = config or {}
+
+    async def assemble(
+        self,
+        *,
+        request: Any,
+        session_state: dict[str, Any],
+        session_manager: Any,
+    ) -> Any:
+        transcript = await session_manager.load_messages(request.session_id)
+        artifacts = await session_manager.list_artifacts(request.session_id)
+        session_state["assembler_seen"] = True
+        prefix = self.config.get("prefix", "summary")
+        return ContextAssemblyResult(
+            transcript=list(transcript) + [{"role": "system", "content": f"{prefix}:{request.input_text}"}],
+            session_artifacts=list(artifacts),
+            metadata={"assembler": prefix},
+        )
+
+    async def finalize(
+        self,
+        *,
+        request: Any,
+        session_state: dict[str, Any],
+        session_manager: Any,
+        result: Any,
+    ) -> Any:
+        session_state["assembler_finalized"] = True
+        await session_manager.save_artifact(
+            request.session_id,
+            SessionArtifact(
+                name="assembly-summary.txt",
+                kind="text",
+                payload=f"stop={getattr(result, 'stop_reason', 'unknown')}",
+            ),
+        )
+        return result
+
+
+class BadContextAssembler:
+    def __init__(self, config: dict[str, Any] | None = None):
+        self.config = config or {}

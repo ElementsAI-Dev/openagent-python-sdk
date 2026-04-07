@@ -17,6 +17,7 @@ from openagents.interfaces.capabilities import (
     SKILL_TOOL_FILTER,
     supports,
 )
+from openagents.interfaces.context import ContextAssemblerPlugin, ContextAssemblyResult
 from openagents.interfaces.events import (
     CONTEXT_CREATED,
     EventBusPlugin,
@@ -115,6 +116,40 @@ class _DefaultToolExecutor(ToolExecutorPlugin):
     async def execute_stream(self, request: ToolExecutionRequest):
         async for chunk in request.tool.invoke_stream(request.params or {}, request.context):
             yield chunk
+
+
+class _DefaultContextAssembler(ContextAssemblerPlugin):
+    async def assemble(
+        self,
+        *,
+        request: Any,
+        session_state: dict[str, Any],
+        session_manager: Any,
+    ) -> ContextAssemblyResult:
+        transcript: list[dict[str, Any]] = []
+        load_messages = getattr(session_manager, "load_messages", None)
+        if callable(load_messages):
+            transcript = await load_messages(request.session_id)
+
+        session_artifacts = []
+        list_artifacts = getattr(session_manager, "list_artifacts", None)
+        if callable(list_artifacts):
+            session_artifacts = await list_artifacts(request.session_id)
+
+        return ContextAssemblyResult(
+            transcript=transcript,
+            session_artifacts=session_artifacts,
+        )
+
+    async def finalize(
+        self,
+        *,
+        request: Any,
+        session_state: dict[str, Any],
+        session_manager: Any,
+        result: Any,
+    ) -> Any:
+        return result
 
 
 class _BoundTool:
@@ -218,6 +253,7 @@ class DefaultRuntime(RuntimePlugin):
         self._llm_clients: dict[str, Any | None] = {}
         self._tool_executor: ToolExecutor | None = None
         self._execution_policy: ExecutionPolicy | None = None
+        self._context_assembler: ContextAssemblerPlugin | None = None
 
     @property
     def event_bus(self) -> EventBusPlugin:
@@ -271,6 +307,7 @@ class DefaultRuntime(RuntimePlugin):
         artifacts = []
         execution_policy = self._get_execution_policy()
         tool_executor = self._get_tool_executor()
+        context_assembler = self._get_context_assembler()
 
         try:
             async with self._session_manager.session(request.session_id) as session_state:
@@ -282,7 +319,11 @@ class DefaultRuntime(RuntimePlugin):
                 )
 
                 session_state.pop("_runtime_last_output", None)
-                transcript = await self._load_transcript(request.session_id)
+                assembly = await context_assembler.assemble(
+                    request=request,
+                    session_state=session_state,
+                    session_manager=self._session_manager,
+                )
                 self._apply_runtime_budget(pattern=plugins.pattern, agent=agent)
                 bound_tools = self._bind_tools(plugins.tools, tool_executor, execution_policy)
 
@@ -293,7 +334,9 @@ class DefaultRuntime(RuntimePlugin):
                     tools=bound_tools,
                     llm_client=llm_client,
                     llm_options=agent.llm,
-                    transcript=transcript,
+                    transcript=assembly.transcript,
+                    session_artifacts=assembly.session_artifacts,
+                    assembly_metadata=assembly.metadata,
                     tool_executor=tool_executor,
                     execution_policy=execution_policy,
                     usage=usage,
@@ -326,14 +369,7 @@ class DefaultRuntime(RuntimePlugin):
                 )
                 await self._persist_artifacts(request.session_id, artifacts)
 
-                await self._event_bus.emit(
-                    RUN_COMPLETED,
-                    agent_id=request.agent_id,
-                    session_id=request.session_id,
-                    run_id=request.run_id,
-                    result=result,
-                )
-                return RunResult(
+                run_result = RunResult(
                     run_id=request.run_id,
                     final_output=result,
                     stop_reason=RUN_STOP_COMPLETED,
@@ -344,6 +380,23 @@ class DefaultRuntime(RuntimePlugin):
                         "session_id": request.session_id,
                     },
                 )
+                finalized_result = await context_assembler.finalize(
+                    request=request,
+                    session_state=session_state,
+                    session_manager=self._session_manager,
+                    result=run_result,
+                )
+                if finalized_result is not None:
+                    run_result = finalized_result
+
+                await self._event_bus.emit(
+                    RUN_COMPLETED,
+                    agent_id=request.agent_id,
+                    session_id=request.session_id,
+                    run_id=request.run_id,
+                    result=result,
+                )
+                return run_result
         except Exception as exc:
             await self._append_transcript(
                 request=request,
@@ -358,7 +411,7 @@ class DefaultRuntime(RuntimePlugin):
                 run_id=request.run_id,
                 error=str(exc),
             )
-            return RunResult(
+            run_result = RunResult(
                 run_id=request.run_id,
                 stop_reason=RUN_STOP_FAILED,
                 usage=usage,
@@ -370,6 +423,15 @@ class DefaultRuntime(RuntimePlugin):
                     "session_id": request.session_id,
                 },
             )
+            finalized_result = await context_assembler.finalize(
+                request=request,
+                session_state=session_state if "session_state" in locals() else {},
+                session_manager=self._session_manager,
+                result=run_result,
+            )
+            if finalized_result is not None:
+                run_result = finalized_result
+            return run_result
 
     def _get_llm_client(self, agent: "AgentDefinition") -> Any | None:
         if agent.id in self._llm_clients:
@@ -422,6 +484,8 @@ class DefaultRuntime(RuntimePlugin):
         llm_client: Any | None,
         llm_options: Any | None,
         transcript: list[dict[str, Any]],
+        session_artifacts: list[Any],
+        assembly_metadata: dict[str, Any],
         tool_executor: ToolExecutor,
         execution_policy: ExecutionPolicy,
         usage: RunUsage,
@@ -439,6 +503,8 @@ class DefaultRuntime(RuntimePlugin):
         }
         optional = {
             "transcript": transcript,
+            "session_artifacts": session_artifacts,
+            "assembly_metadata": assembly_metadata,
             "run_request": request,
             "tool_executor": tool_executor,
             "execution_policy": execution_policy,
@@ -459,6 +525,8 @@ class DefaultRuntime(RuntimePlugin):
         context.llm_options = llm_options
         context.event_bus = self._event_bus
         context.transcript = list(transcript)
+        context.session_artifacts = list(session_artifacts)
+        context.assembly_metadata = dict(assembly_metadata)
         context.run_request = request
         context.tool_executor = tool_executor
         context.execution_policy = execution_policy
@@ -486,6 +554,17 @@ class DefaultRuntime(RuntimePlugin):
             required_methods=("evaluate",),
         )
         return self._execution_policy
+
+    def _get_context_assembler(self) -> ContextAssemblerPlugin:
+        if self._context_assembler is not None:
+            return self._context_assembler
+        self._context_assembler = self._load_runtime_dependency(
+            key="context_assembler",
+            default_factory=_DefaultContextAssembler,
+            builtin_factories={"default": _DefaultContextAssembler},
+            required_methods=("assemble", "finalize"),
+        )
+        return self._context_assembler
 
     def _load_runtime_dependency(
         self,
@@ -548,12 +627,6 @@ class DefaultRuntime(RuntimePlugin):
                 dependency.session_manager = self._session_manager
             except Exception:
                 pass
-
-    async def _load_transcript(self, session_id: str) -> list[dict[str, Any]]:
-        loader = getattr(self._session_manager, "load_messages", None)
-        if callable(loader):
-            return await loader(session_id)
-        return []
 
     async def _append_transcript(
         self,

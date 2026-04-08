@@ -534,12 +534,14 @@ class DefaultRuntime(RuntimePlugin):
         context.artifacts = artifacts
 
     def _get_tool_executor(self) -> ToolExecutor:
+        from openagents.plugins.builtin.tool_executor.safe import SafeToolExecutor
+
         if self._tool_executor is not None:
             return self._tool_executor
         self._tool_executor = self._load_runtime_dependency(
             key="tool_executor",
             default_factory=_DefaultToolExecutor,
-            builtin_factories={"default": _DefaultToolExecutor},
+            builtin_factories={"default": _DefaultToolExecutor, "safe": SafeToolExecutor},
             required_methods=("execute", "execute_stream"),
         )
         return self._tool_executor
@@ -552,12 +554,17 @@ class DefaultRuntime(RuntimePlugin):
         return self._get_tool_executor()
 
     def _get_execution_policy(self) -> ExecutionPolicy:
+        from openagents.plugins.builtin.execution_policy.filesystem import FilesystemExecutionPolicy
+
         if self._execution_policy is not None:
             return self._execution_policy
         self._execution_policy = self._load_runtime_dependency(
             key="execution_policy",
             default_factory=_AllowAllExecutionPolicy,
-            builtin_factories={"allow_all": _AllowAllExecutionPolicy},
+            builtin_factories={
+                "allow_all": _AllowAllExecutionPolicy,
+                "filesystem": FilesystemExecutionPolicy,
+            },
             required_methods=("evaluate",),
         )
         return self._execution_policy
@@ -570,12 +577,17 @@ class DefaultRuntime(RuntimePlugin):
         return self._get_execution_policy()
 
     def _get_context_assembler(self) -> ContextAssemblerPlugin:
+        from openagents.plugins.builtin.context.summarizing import SummarizingContextAssembler
+
         if self._context_assembler is not None:
             return self._context_assembler
         self._context_assembler = self._load_runtime_dependency(
             key="context_assembler",
             default_factory=_DefaultContextAssembler,
-            builtin_factories={"default": _DefaultContextAssembler},
+            builtin_factories={
+                "default": _DefaultContextAssembler,
+                "summarizing": SummarizingContextAssembler,
+            },
             required_methods=("assemble", "finalize"),
         )
         return self._context_assembler

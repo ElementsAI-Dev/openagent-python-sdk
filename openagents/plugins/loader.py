@@ -183,7 +183,22 @@ def load_skill_plugin(ref: SkillRef | None) -> Any | None:
 def load_tool_executor_plugin(ref: ToolExecutorRef | None) -> Any | None:
     if ref is None:
         return None
-    plugin = _load_plugin("tool_executor", ref)
+    if ref.impl:
+        plugin = _load_plugin("tool_executor", ref)
+    elif ref.type:
+        from openagents.plugins.builtin.tool_executor.safe import SafeToolExecutor
+
+        builtins = {
+            "safe": SafeToolExecutor,
+        }
+        plugin_cls = builtins.get(ref.type)
+        if plugin_cls is None:
+            raise PluginLoadError(
+                f"Unknown tool_executor plugin type: '{ref.type}'"
+            )
+        plugin = _instantiate(plugin_cls, ref.config)
+    else:
+        raise PluginLoadError("tool_executor plugin must set one of 'type' or 'impl'")
     if not callable(getattr(plugin, "execute", None)):
         raise CapabilityError(
             f"tool executor '{type(plugin).__name__}' must implement 'execute'"
@@ -198,7 +213,22 @@ def load_tool_executor_plugin(ref: ToolExecutorRef | None) -> Any | None:
 def load_execution_policy_plugin(ref: ExecutionPolicyRef | None) -> Any | None:
     if ref is None:
         return None
-    plugin = _load_plugin("execution_policy", ref)
+    if ref.impl:
+        plugin = _load_plugin("execution_policy", ref)
+    elif ref.type:
+        from openagents.plugins.builtin.execution_policy.filesystem import FilesystemExecutionPolicy
+
+        builtins = {
+            "filesystem": FilesystemExecutionPolicy,
+        }
+        plugin_cls = builtins.get(ref.type)
+        if plugin_cls is None:
+            raise PluginLoadError(
+                f"Unknown execution_policy plugin type: '{ref.type}'"
+            )
+        plugin = _instantiate(plugin_cls, ref.config)
+    else:
+        raise PluginLoadError("execution_policy plugin must set one of 'type' or 'impl'")
     if not callable(getattr(plugin, "evaluate", None)):
         raise CapabilityError(
             f"execution policy '{type(plugin).__name__}' must implement 'evaluate'"
@@ -209,7 +239,22 @@ def load_execution_policy_plugin(ref: ExecutionPolicyRef | None) -> Any | None:
 def load_context_assembler_plugin(ref: ContextAssemblerRef | None) -> Any | None:
     if ref is None:
         return None
-    plugin = _load_plugin("context_assembler", ref)
+    if ref.impl:
+        plugin = _load_plugin("context_assembler", ref)
+    elif ref.type:
+        from openagents.plugins.builtin.context.summarizing import SummarizingContextAssembler
+
+        builtins = {
+            "summarizing": SummarizingContextAssembler,
+        }
+        plugin_cls = builtins.get(ref.type)
+        if plugin_cls is None:
+            raise PluginLoadError(
+                f"Unknown context_assembler plugin type: '{ref.type}'"
+            )
+        plugin = _instantiate(plugin_cls, ref.config)
+    else:
+        raise PluginLoadError("context_assembler plugin must set one of 'type' or 'impl'")
     if not callable(getattr(plugin, "assemble", None)):
         raise CapabilityError(
             f"context assembler '{type(plugin).__name__}' must implement 'assemble'"

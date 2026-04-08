@@ -23,12 +23,19 @@ def _base_payload() -> dict:
 
 
 def test_load_agent_plugins_builtin_types():
-    config = load_config_dict(_base_payload())
+    payload = _base_payload()
+    payload["agents"][0]["tool_executor"] = {"type": "safe"}
+    payload["agents"][0]["execution_policy"] = {"type": "filesystem"}
+    payload["agents"][0]["context_assembler"] = {"type": "summarizing"}
+    config = load_config_dict(payload)
     plugins = load_agent_plugins(config.agents[0])
 
     assert type(plugins.memory).__name__ == "WindowBufferMemory"
     assert type(plugins.pattern).__name__ == "ReActPattern"
     assert type(plugins.skill).__name__ == "CustomSkill"
+    assert type(plugins.tool_executor).__name__ == "SafeToolExecutor"
+    assert type(plugins.execution_policy).__name__ == "FilesystemExecutionPolicy"
+    assert type(plugins.context_assembler).__name__ == "SummarizingContextAssembler"
     assert "search" in plugins.tools
     assert "skill_calc" in plugins.tools
     assert type(plugins.tools["search"]).__name__ == "BuiltinSearchTool"

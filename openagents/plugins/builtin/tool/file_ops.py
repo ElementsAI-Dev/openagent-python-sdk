@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from openagents.interfaces.capabilities import TOOL_INVOKE
-from openagents.interfaces.tool import ToolPlugin
+from openagents.interfaces.tool import ToolExecutionSpec, ToolPlugin
 
 
 class ReadFileTool(ToolPlugin):
@@ -30,6 +30,9 @@ class ReadFileTool(ToolPlugin):
             },
             "required": ["path"],
         }
+
+    def execution_spec(self) -> ToolExecutionSpec:
+        return ToolExecutionSpec(reads_files=True)
 
     def validate_params(self, params: dict[str, Any]) -> tuple[bool, str | None]:
         path = params.get("path", "")
@@ -59,6 +62,9 @@ class WriteFileTool(ToolPlugin):
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config or {}, capabilities={TOOL_INVOKE})
 
+    def execution_spec(self) -> ToolExecutionSpec:
+        return ToolExecutionSpec(writes_files=True)
+
     async def invoke(self, params: dict[str, Any], context: Any) -> Any:
         path = params.get("path", "")
         content = params.get("content", "")
@@ -83,6 +89,9 @@ class ListFilesTool(ToolPlugin):
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config or {}, capabilities={TOOL_INVOKE})
+
+    def execution_spec(self) -> ToolExecutionSpec:
+        return ToolExecutionSpec(reads_files=True)
 
     async def invoke(self, params: dict[str, Any], context: Any) -> Any:
         path = params.get("path", ".")
@@ -109,6 +118,9 @@ class DeleteFileTool(ToolPlugin):
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config or {}, capabilities={TOOL_INVOKE})
+
+    def execution_spec(self) -> ToolExecutionSpec:
+        return ToolExecutionSpec(writes_files=True)
 
     async def invoke(self, params: dict[str, Any], context: Any) -> Any:
         path = params.get("path", "")

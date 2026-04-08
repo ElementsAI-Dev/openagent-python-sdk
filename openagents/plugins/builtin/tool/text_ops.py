@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from openagents.interfaces.capabilities import TOOL_INVOKE
-from openagents.interfaces.tool import ToolPlugin
+from openagents.interfaces.tool import ToolExecutionSpec, ToolPlugin
 
 
 class GrepFilesTool(ToolPlugin):
@@ -15,6 +15,9 @@ class GrepFilesTool(ToolPlugin):
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config or {}, capabilities={TOOL_INVOKE})
+
+    def execution_spec(self) -> ToolExecutionSpec:
+        return ToolExecutionSpec(reads_files=True)
 
     async def invoke(self, params: dict[str, Any], context: Any) -> Any:
         pattern = params.get("pattern", "")
@@ -60,6 +63,9 @@ class RipgrepTool(ToolPlugin):
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config or {}, capabilities={TOOL_INVOKE})
+
+    def execution_spec(self) -> ToolExecutionSpec:
+        return ToolExecutionSpec(reads_files=True)
 
     async def invoke(self, params: dict[str, Any], context: Any) -> Any:
         pattern = params.get("pattern", "")

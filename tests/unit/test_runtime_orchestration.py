@@ -227,6 +227,129 @@ async def test_runtime_prefers_agent_level_runtime_seams_over_runtime_config():
 
 
 @pytest.mark.asyncio
+async def test_runtime_uses_builtin_safe_tool_executor_timeout():
+    payload = _payload(
+        "tests.fixtures.runtime_plugins.InjectWritebackMemory",
+        "tests.fixtures.runtime_plugins.ConfigurableToolPattern",
+    )
+    payload["agents"][0]["tool_executor"] = {
+        "type": "safe",
+        "config": {"default_timeout_ms": 5},
+    }
+    payload["agents"][0]["pattern"]["config"] = {
+        "tool_id": "slow_tool",
+        "params": {"value": "hello"},
+    }
+    payload["agents"][0]["tools"] = [
+        {"id": "slow_tool", "impl": "tests.fixtures.custom_plugins.SlowTool", "config": {"delay": 0.05}}
+    ]
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+
+    result = await runtime.run_detailed(
+        request=RunRequest(
+            agent_id="assistant",
+            session_id="safe-timeout",
+            input_text="hello",
+        )
+    )
+
+    assert result.stop_reason == "failed"
+    assert "timed out after 5ms" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_runtime_uses_builtin_filesystem_execution_policy(tmp_path):
+    allowed_dir = tmp_path / "allowed"
+    blocked_dir = tmp_path / "blocked"
+    allowed_dir.mkdir()
+    blocked_dir.mkdir()
+    allowed_file = allowed_dir / "allowed.txt"
+    blocked_file = blocked_dir / "blocked.txt"
+    allowed_file.write_text("ok", encoding="utf-8")
+    blocked_file.write_text("no", encoding="utf-8")
+
+    payload = _payload(
+        "tests.fixtures.runtime_plugins.InjectWritebackMemory",
+        "tests.fixtures.runtime_plugins.ConfigurableToolPattern",
+    )
+    payload["agents"][0]["execution_policy"] = {
+        "type": "filesystem",
+        "config": {"read_roots": [str(allowed_dir)], "allow_tools": ["read_file"]},
+    }
+    payload["agents"][0]["pattern"]["config"] = {
+        "tool_id": "read_file",
+        "params": {"path": str(allowed_file)},
+    }
+    payload["agents"][0]["tools"] = [{"id": "read_file", "type": "read_file"}]
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+
+    allowed_result = await runtime.run(
+        agent_id="assistant",
+        session_id="filesystem-allowed",
+        input_text="read allowed",
+    )
+    assert allowed_result["content"] == "ok"
+
+    payload["agents"][0]["pattern"]["config"] = {
+        "tool_id": "read_file",
+        "params": {"path": str(blocked_file)},
+    }
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+    denied_result = await runtime.run_detailed(
+        request=RunRequest(
+            agent_id="assistant",
+            session_id="filesystem-denied",
+            input_text="read blocked",
+        )
+    )
+    assert denied_result.stop_reason == "failed"
+    assert "outside read_roots" in (denied_result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_runtime_uses_builtin_summarizing_context_assembler():
+    payload = _payload(
+        "tests.fixtures.runtime_plugins.InjectWritebackMemory",
+        "tests.fixtures.runtime_plugins.ContextAwarePattern",
+    )
+    payload["agents"][0]["context_assembler"] = {
+        "type": "summarizing",
+        "config": {"max_messages": 2, "max_artifacts": 1, "include_summary_message": True},
+    }
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+
+    for idx in range(4):
+        await runtime.session_manager.append_message(
+            "summary-session",
+            {"role": "user", "content": f"msg-{idx}"},
+        )
+    await runtime.session_manager.save_artifact(
+        "summary-session",
+        SessionArtifact(name="a.txt", kind="text", payload="a"),
+    )
+    await runtime.session_manager.save_artifact(
+        "summary-session",
+        SessionArtifact(name="b.txt", kind="text", payload="b"),
+    )
+
+    result = await runtime.run(
+        agent_id="assistant",
+        session_id="summary-session",
+        input_text="summarize",
+    )
+
+    assert result["transcript_count"] == 3
+    assert result["artifact_names"] == ["b.txt"]
+    assert result["assembly_metadata"]["assembler"] == "summarizing"
+    assert result["assembly_metadata"]["omitted_messages"] == 2
+    assert result["assembly_metadata"]["omitted_artifacts"] == 1
+
+
+@pytest.mark.asyncio
 async def test_runtime_uses_configured_tool_executor():
     payload = _payload(
         "tests.fixtures.runtime_plugins.InjectWritebackMemory",

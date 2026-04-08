@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from openagents.interfaces.context import ContextAssemblyResult
@@ -58,6 +59,17 @@ class CustomTool:
         self.capabilities = {TOOL_INVOKE}
 
     async def invoke(self, params: dict[str, Any], context: Any) -> Any:
+        return {"ok": True, "params": params}
+
+
+class SlowTool:
+    def __init__(self, config: dict[str, Any] | None = None):
+        self.config = config or {}
+        self.capabilities = {TOOL_INVOKE}
+        self._delay = float(self.config.get("delay", 0.05))
+
+    async def invoke(self, params: dict[str, Any], context: Any) -> Any:
+        await asyncio.sleep(self._delay)
         return {"ok": True, "params": params}
 
 

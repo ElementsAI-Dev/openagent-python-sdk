@@ -5,11 +5,14 @@ from pathlib import Path
 
 import pytest
 
+import openagents.llm.registry as llm_registry
+from openagents.llm.providers.mock import MockLLMClient
 from openagents.runtime.runtime import Runtime
 
 
 @pytest.mark.asyncio
-async def test_runtime_from_quickstart_config_file():
+async def test_runtime_from_quickstart_config_file(monkeypatch):
+    monkeypatch.setattr(llm_registry, "create_llm_client", lambda llm: MockLLMClient())
     runtime = Runtime.from_config("examples/quickstart/agent.json")
 
     first = await runtime.run(

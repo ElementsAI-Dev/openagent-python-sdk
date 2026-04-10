@@ -1,82 +1,174 @@
 # Examples
 
-All examples use **MiniMax LLM** via the Anthropic-compatible protocol by default.
-Setup: copy `.env.example` to `.env` and add your `MINIMAX_API_KEY`.
+这些 example 按扩展姿势组织，不按“简单到复杂”组织。
 
----
+如果你是第一次看仓库，推荐顺序：
 
-## Quickstart
+1. `quickstart`
+2. `custom_impl`
+3. `runtime_composition`
+4. `production_coding_agent`
 
-Builtin plugins only — zero custom code.
+这样最容易先看懂 kernel，再看懂 seam，最后看高设计密度 agent。
 
-- Config: `quickstart/agent.json`
-- Run: `uv run python examples/quickstart/run_demo.py`
+## 模型说明
 
-## Custom Plugins (`impl`)
+大多数 example 默认使用 MiniMax 的 Anthropic-compatible 接口，需要：
 
-Custom Skill + custom Pattern, full 6-hook capability system.
+- `MINIMAX_API_KEY`
 
-- Config: `custom_impl/agent.json`
-- Plugins: `custom_impl/plugins.py`
-- Run: `uv run python examples/custom_impl/run_demo.py`
+`openai_compatible/` 例外，它需要：
 
-## OpenAI-Compatible Real Call
+- `OPENAI_MODEL`
+- `OPENAI_BASE_URL`
+- `OPENAI_API_KEY`
 
-Uses your own OpenAI-compatible endpoint.
+## 目录说明
 
-- Config: `openai_compatible/agent.json`
-- Env: `openai_compatible/.env.example`
-- Run:
-  ```
-  cp openai_compatible/.env.example openai_compatible/.env
-  # fill OPENAI_MODEL, OPENAI_BASE_URL, OPENAI_API_KEY
-  uv run python examples/openai_compatible/run_demo.py
-  ```
+### `quickstart/`
 
-## Runtime Composition
+builtin-only 最小示例：
 
-Builtin execution seams (safe tool executor, filesystem policy, summarizing assembler).
+- builtin memory
+- builtin pattern
+- builtin search tool
 
-- Config: `runtime_composition/agent.json`
-- Plugins: `runtime_composition/plugins.py`
-- Run: `uv run python examples/runtime_composition/run_demo.py`
+运行：
 
-## Persistent QA Assistant
+```bash
+uv run python examples/quickstart/run_demo.py
+```
 
-File-backed persistent memory across sessions, keyword search, interactive CLI.
+### `custom_impl/`
 
-- Config: `persistent_qa/agent.json`
-- Plugins: `persistent_qa/plugins/`
-- Run: `uv run python examples/persistent_qa/run_demo.py`
+直接用 `impl` 指向自定义代码：
 
-## Multi-Step Research
+- custom pattern
+- custom skill
+- custom tool
 
-Plan-Execute pattern: search → read_file → synthesize, with scratch metadata.
+运行：
 
-- Config: `multi_step_research/agent.json`
-- Plugins: `multi_step_research/plugins.py`
-- Run: `uv run python examples/multi_step_research/run_demo.py`
+```bash
+uv run python -m examples.custom_impl.run_demo
+```
 
-## Skill Hooks Demo
+### `runtime_composition/`
 
-All 6 Skill capability hooks firing in order — `get_system_prompt`, `get_metadata`,
-`augment_context`, `filter_tools`, `before_run`, `after_run`.
+演示 agent 级 runtime seam：
 
-- Config: `skill_hooks_demo/agent.json`
-- Plugins: `skill_hooks_demo/plugins.py`
-- Run: `uv run python examples/skill_hooks_demo/run_demo.py`
+- `tool_executor`
+- `execution_policy`
+- `context_assembler`
 
-## Long Conversation
+运行：
 
-SummarizingContextAssembler (transcript trimming) + ChainMemory (buffer + window).
+```bash
+uv run python examples/runtime_composition/run_demo.py
+```
 
-- Config: `long_conversation/agent.json`
-- Run: `uv run python examples/long_conversation/run_demo.py`
+### `skill_hooks_demo/`
 
-## Sandbox Agent
+演示完整 skill lifecycle：
 
-FilesystemExecutionPolicy (read-only whitelist) + SafeToolExecutor (timeout guard).
+- system prompt
+- metadata
+- context augment
+- tool filter
+- before run
+- after run
 
-- Config: `sandbox_agent/agent.json`
-- Plugins: `sandbox_agent/plugins.py`
-- Run: `uv run python examples/sandbox_agent/run_demo.py`
+运行：
+
+```bash
+uv run python examples/skill_hooks_demo/run_demo.py
+```
+
+### `production_coding_agent/`
+
+高设计密度、production-style coding agent 示例：
+
+- task packet assembly
+- persistent coding memory
+- engineering skill framing
+- filesystem boundary
+- safe tool execution
+- local follow-up semantics
+- delivery artifacts
+
+运行：
+
+```bash
+uv run python examples/production_coding_agent/run_demo.py
+```
+
+验证：
+
+```bash
+uv run pytest -q tests/integration/test_production_coding_agent_example.py
+```
+
+### `multi_step_research/`
+
+自定义 research pattern 示例。
+
+运行：
+
+```bash
+uv run python examples/multi_step_research/run_demo.py
+```
+
+### `long_conversation/`
+
+长对话 / 长 session 示例：
+
+- `chain` memory
+- `window_buffer`
+- `summarizing` context assembler
+
+运行：
+
+```bash
+uv run python examples/long_conversation/run_demo.py
+```
+
+### `sandbox_agent/`
+
+安全导向示例：
+
+- `filesystem` execution policy
+- `safe` tool executor
+
+运行：
+
+```bash
+uv run python examples/sandbox_agent/run_demo.py
+```
+
+### `persistent_qa/`
+
+自定义持久化 memory 示例。
+
+运行：
+
+```bash
+uv run python examples/persistent_qa/run_demo.py
+```
+
+### `openai_compatible/`
+
+OpenAI-compatible provider 示例。
+
+运行：
+
+```bash
+uv run python examples/openai_compatible/run_demo.py
+```
+
+## 配合文档一起看
+
+建议配合：
+
+- [docs-v2/examples.md](../docs-v2/examples.md)
+- [docs-v2/developer-guide.md](../docs-v2/developer-guide.md)
+- [docs-v2/seams-and-extension-points.md](../docs-v2/seams-and-extension-points.md)

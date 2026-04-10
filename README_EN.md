@@ -1,0 +1,396 @@
+# OpenAgents SDK
+
+Build protocol-rich agents on top of a small, explicit runtime kernel.
+
+OpenAgents is a config-as-code, async-first, pluggable SDK for developers who
+want real control over agent behavior without burying everything inside one giant
+`Pattern.execute()` method.
+
+It is designed for:
+
+- teams that want a clear agent runtime instead of a black-box framework
+- developers building protocol-heavy coding, research, and workflow agents
+- products that need their own middle protocols, safety rules, and context logic
+- applications that want a stable kernel now and product infrastructure on top
+
+It is deliberately **not** a multi-agent control plane. One `run` executes one
+`agent_id`. Team orchestration, mailboxes, schedulers, approvals, and product UX
+belong above this layer.
+
+## Why OpenAgents
+
+Most agent frameworks collapse three very different things into one abstraction:
+
+1. the kernel protocol that defines what a run is
+2. the runtime seams that decide how a run behaves
+3. the product-specific middle protocols that only your application understands
+
+OpenAgents keeps them separate.
+
+```text
+App / Product Protocols
+    task envelopes, coding plans, review contracts, approvals, UI semantics
+            |
+            v
+SDK Runtime Seams
+    tool_executor, execution_policy, context_assembler,
+    followup_resolver, response_repair_policy
+            |
+            v
+Kernel Protocols
+    RunRequest, RunResult, ExecutionContext,
+    ToolExecutionRequest, ToolExecutionResult, SessionArtifact
+```
+
+That separation gives you:
+
+- a small kernel with explicit runtime behavior
+- stable extension seams instead of ad-hoc monkeypatching
+- room to invent app-specific protocols without forking the SDK
+- documentation and tests that can describe the system as a protocol stack
+
+## What It Is
+
+- a **single-agent runtime kernel**
+- a **plugin-based execution model** for memory, pattern, skill, tool, session, runtime, and events
+- a **middle-protocol host** for execution policy, tool execution, context assembly, follow-up resolution, and response repair
+- a **structured runtime contract** built around `RunRequest`, `RunResult`, `RunUsage`, `RunArtifact`, and `ExecutionContext`
+
+## What It Is Not
+
+- not a built-in multi-agent platform
+- not a job scheduler or queue system
+- not a durable product control plane
+- not a UI opinion
+- not a giant catalog of seams for every possible product concern
+
+The intended architecture is:
+
+- OpenAgents SDK owns the kernel and a few high-value seams
+- your product owns durable infra, UX, team orchestration, and business semantics
+- your application invents its own middle protocols on top of the kernel carriers
+
+## Core Mental Model
+
+An OpenAgents application has three layers.
+
+### 1. Kernel Protocols
+
+These are the stable runtime objects that define what the system moves around:
+
+- `RunRequest`
+- `RunResult`
+- `RunUsage`
+- `RunArtifact`
+- `ExecutionContext`
+- `ToolExecutionRequest`
+- `ToolExecutionResult`
+- `ContextAssemblyResult`
+- `SessionArtifact`
+
+### 2. SDK Seams
+
+These are the official extension points where the runtime intentionally allows
+behavior changes:
+
+- capability seams:
+  - `memory`
+  - `pattern`
+  - `skill`
+  - `tool`
+- execution seams:
+  - `tool_executor`
+  - `execution_policy`
+  - `context_assembler`
+- semantic recovery seams:
+  - `followup_resolver`
+  - `response_repair_policy`
+- app infrastructure seams:
+  - `runtime`
+  - `session`
+  - `events`
+
+### 3. App-Defined Middle Protocols
+
+This is where most high-design-density agents should live.
+
+Examples:
+
+- coding-task envelopes
+- review contracts
+- action summaries
+- permission envelopes
+- retrieval plans
+- artifact taxonomies
+
+OpenAgents does not try to predefine all of these. Instead, it gives you carriers:
+
+- `RunRequest.context_hints`
+- `RunRequest.metadata`
+- `ExecutionContext.state`
+- `ExecutionContext.scratch`
+- `ExecutionContext.assembly_metadata`
+- `ExecutionContext.skill_metadata`
+- `RunArtifact.metadata`
+
+## Runtime Architecture
+
+The runtime is intentionally explicit:
+
+```text
+Caller
+  -> Runtime facade
+    -> Runtime plugin
+      -> Session manager + Event bus
+      -> Context assembler
+      -> Pattern setup
+      -> Skill hooks
+      -> Memory inject / writeback
+      -> Bound tools (policy + executor)
+      -> LLM provider
+      -> RunResult
+```
+
+At the code level:
+
+- `Runtime` is the public facade
+- `DefaultRuntime` is the builtin orchestrator
+- `ExecutionContext` is the per-run state carrier
+- plugins are loaded from builtin registry, decorator registry, or `impl` paths
+
+## Quick Start
+
+Install:
+
+```bash
+uv add openagents-sdk
+```
+
+Optional extras:
+
+```bash
+uv add "openagents-sdk[openai]"
+uv add "openagents-sdk[mem0]"
+uv add "openagents-sdk[mcp]"
+uv add "openagents-sdk[all]"
+```
+
+Minimal config:
+
+```json
+{
+  "version": "1.0",
+  "agents": [
+    {
+      "id": "assistant",
+      "name": "demo-agent",
+      "memory": {"type": "window_buffer", "on_error": "continue"},
+      "pattern": {"type": "react"},
+      "llm": {"provider": "mock"},
+      "tools": [
+        {"id": "search", "type": "builtin_search"}
+      ]
+    }
+  ]
+}
+```
+
+Async usage:
+
+```python
+import asyncio
+
+from openagents import Runtime
+
+
+async def main() -> None:
+    runtime = Runtime.from_config("agent.json")
+    result = await runtime.run(
+        agent_id="assistant",
+        session_id="demo",
+        input_text="hello",
+    )
+    print(result)
+
+
+asyncio.run(main())
+```
+
+Sync usage:
+
+```python
+from openagents import run_agent
+
+result = run_agent(
+    "agent.json",
+    agent_id="assistant",
+    session_id="demo",
+    input_text="hello",
+)
+print(result)
+```
+
+Structured sync usage:
+
+```python
+from openagents import run_agent_detailed, run_agent_with_dict
+
+result = run_agent_detailed(
+    "agent.json",
+    agent_id="assistant",
+    session_id="demo",
+    input_text="hello",
+)
+
+inline = run_agent_with_dict(
+    {
+        "version": "1.0",
+        "agents": [
+            {
+                "id": "assistant",
+                "name": "demo",
+                "memory": {"type": "buffer"},
+                "pattern": {"type": "react"},
+                "llm": {"provider": "mock"},
+                "tools": []
+            }
+        ]
+    },
+    agent_id="assistant",
+    session_id="demo",
+    input_text="hello",
+)
+```
+
+## Builtin Components
+
+Builtin memory:
+
+- `buffer`
+- `window_buffer`
+- `mem0`
+- `chain`
+
+Builtin pattern:
+
+- `react`
+- `plan_execute`
+- `reflexion`
+
+Builtin app infrastructure:
+
+- runtime: `default`
+- session manager: `in_memory`
+- event bus: `async`
+
+Builtin execution seams:
+
+- tool executor: `safe`
+- execution policy: `filesystem`
+- context assembler: `summarizing`
+- follow-up resolver: `basic`
+- response repair policy: `basic`
+
+Builtin tools:
+
+- Search: `builtin_search`
+- Files: `read_file`, `write_file`, `list_files`, `delete_file`
+- Text: `grep_files`, `ripgrep`, `json_parse`, `text_transform`
+- HTTP / network: `http_request`, `url_parse`, `url_build`, `query_param`, `host_lookup`
+- System: `execute_command`, `get_env`, `set_env`
+- Time: `current_time`, `date_parse`, `date_diff`
+- Random: `random_int`, `random_choice`, `random_string`, `uuid`
+- Math: `calc`, `percentage`, `min_max`
+- MCP bridge: `mcp`
+
+## Selector Rules
+
+OpenAgents uses two selectors:
+
+- `type`
+  - choose a builtin plugin or a decorator-registered plugin
+- `impl`
+  - import a Python symbol by dotted path
+
+Rules:
+
+- top-level `runtime`, `session`, and `events` must choose one selector
+- agent-level plugins and seams must set at least one of `type` or `impl`
+- if an agent-level selector sets both, loader prefers `impl`
+
+## Why The Seams Are Limited
+
+OpenAgents does **not** try to ship a seam for every product problem.
+
+That is intentional. The current rule is:
+
+- keep kernel protocols fixed
+- expose a small number of high-value runtime seams
+- let developers invent application protocols themselves
+
+If your problem is:
+
+- "how should this tool run?"
+  - use `tool_executor`
+- "is this tool allowed?"
+  - use `execution_policy`
+- "what context enters this run?"
+  - use `context_assembler`
+- "can this follow-up be answered locally?"
+  - use `followup_resolver`
+- "how should a bad provider response degrade?"
+  - use `response_repair_policy`
+- "how should my coding agent represent review tasks, work plans, or product state?"
+  - design an app protocol on top of the kernel carriers
+
+## Examples
+
+Real examples in this repo cover several extension styles:
+
+- [examples/quickstart](examples/quickstart)
+  - builtin-only setup
+- [examples/custom_impl](examples/custom_impl)
+  - custom `impl`-based plugins
+- [examples/runtime_composition](examples/runtime_composition)
+  - runtime seam composition
+- [examples/skill_hooks_demo](examples/skill_hooks_demo)
+  - full skill lifecycle
+- [examples/production_coding_agent](examples/production_coding_agent)
+  - production-style coding agent with task packets, persistent memory, follow-up recovery, and delivery artifacts
+- [examples/multi_step_research](examples/multi_step_research)
+  - custom research pattern
+- [examples/long_conversation](examples/long_conversation)
+  - chain memory + summarizing context assembly
+- [examples/sandbox_agent](examples/sandbox_agent)
+  - filesystem policy + safe tool execution
+- [examples/persistent_qa](examples/persistent_qa)
+  - file-backed custom memory
+- [examples/openai_compatible](examples/openai_compatible)
+  - OpenAI-compatible provider integration
+
+## Documentation
+
+Developer docs live in [docs-v2](docs-v2/README.md).
+
+Recommended reading order:
+
+1. [Developer Guide](docs-v2/developer-guide.md)
+2. [Seams And Extension Points](docs-v2/seams-and-extension-points.md)
+3. [Configuration](docs-v2/configuration.md)
+4. [Plugin Development](docs-v2/plugin-development.md)
+5. [API Reference](docs-v2/api-reference.md)
+6. [Examples](docs-v2/examples.md)
+
+## Current Boundary
+
+OpenAgents is already a strong base for protocol-rich single-agent systems.
+
+The next layer up should be:
+
+- multi-agent orchestration
+- background jobs
+- approvals
+- durable infra
+- UI and product workflows
+
+That layer should consume this SDK, not be forced into it.

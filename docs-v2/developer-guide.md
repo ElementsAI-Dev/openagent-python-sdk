@@ -1,217 +1,363 @@
-# 开发指南
+# 开发者指南
 
-这份文档关注运行时行为、仓库本地开发方式，以及 builtin 实现当前做了什么、没做什么。
+这份文档讲的是：**怎样用 OpenAgents 做对的架构分层。**
 
-## 执行流程
+如果只记住一句话，请记这句：
 
-一次 `Runtime.run()` 的主流程如下：
+**不要把产品语义轻易塞进 kernel。**
 
-1. 根据 `agent_id` 找到目标 agent。
-2. 在当前 `session_id` 下解析或复用该 agent 的插件实例。
-3. 把执行委托给配置好的 runtime plugin。
-4. 通过 session manager 获取并锁定 session state。
-5. 构建 `ExecutionContext`，挂上 tools、LLM client 和 event bus。
-6. 调用 memory `inject()`。
-7. 调用 pattern `execute()`。
-8. 调用 memory `writeback()`。
-9. 把输出写入 session state，并发出生命周期事件。
+OpenAgents 最适合的分工是：
 
-builtin runtime 实现在 `openagents/plugins/builtin/runtime/default_runtime.py`。
+- kernel protocol 尽量稳定
+- SDK seam 少而硬
+- app 自己发明 middle protocol
 
-## Session 隔离
+## 1. 项目边界
 
-session 隔离由两层共同保证：
-
-- `Runtime` 维护按 `session_id` 和 `agent_id` 分组的插件缓存
-- `InMemorySessionManager` 为每个 `session_id` 使用一个 async lock
+OpenAgents 是一个 **single-agent runtime kernel**。
 
 这意味着：
 
-- 同一 session：串行执行
-- 不同 session：可以并发执行
-- memory 实例：按 session 隔离
-- tool 实例：按 session 隔离
+- 一次 `RunRequest` 只对应一个 `agent_id`
+- 一次 `Runtime.run()` 只执行一个 agent run
+- session、memory、pattern、tool bundle 都围绕这个单 agent 模型组织
+
+这也意味着，它当前 **不负责**：
+
+- multi-agent team orchestration
+- subagent delegation
+- mailbox / background jobs
+- approval UX
+- product workflow state machine
 
-## Hot Reload
+这些能力应该放在 SDK 之上。
+
+## 2. 三层结构
 
-`Runtime.reload()` 会重新从磁盘加载最初使用的配置文件，并把变更应用到未来请求。
+### Kernel Protocol
 
-它会更新：
+这是运行时最底层、最稳定的一组对象：
 
-- 发生变化的 agent 定义
-- 被移除 agent 的插件缓存
-- 发生变化 agent 的 runtime 级 LLM client cache
+- `RunRequest`
+- `RunResult`
+- `RunUsage`
+- `RunArtifact`
+- `ExecutionContext`
+- `ToolExecutionRequest`
+- `ToolExecutionResult`
+- `ContextAssemblyResult`
+- `SessionArtifact`
+- `SessionCheckpoint`
 
-它不会热切换：
+这些对象应该尽量保持小、明确、无产品偏见。
 
-- 顶层 `runtime`
-- 顶层 `session`
-- 顶层 `events`
+### SDK Seam
 
-这些顶层组件一旦变化，`Runtime.reload()` 会抛出 `ConfigError`。
+这是 runtime 明确开放出来的控制缝：
 
-`Runtime.reload_agent(agent_id)` 更窄，只会清理该 agent 在各个 session 下的插件缓存，不会替换全局组件。
+- capability seam
+  - `memory`
+  - `pattern`
+  - `skill`
+  - `tool`
+- execution seam
+  - `tool_executor`
+  - `execution_policy`
+  - `context_assembler`
+- semantic recovery seam
+  - `followup_resolver`
+  - `response_repair_policy`
+- app infra seam
+  - `runtime`
+  - `session`
+  - `events`
 
-## Builtin Runtime 行为
+### App-Defined Middle Protocol
 
-`DefaultRuntime` 负责：
+这才是高设计密度 agent 最应该发力的地方。
 
-- 为每个 agent 创建或复用 LLM client
-- 发出 run 生命周期事件
-- 按策略处理 memory inject / writeback
-- 依赖 session manager 提供锁和 state
+例如：
 
-builtin memory 错误策略由 `memory.on_error` 决定：
+- coding-task envelope
+- review contract
+- retrieval plan
+- permission state
+- artifact taxonomy
+- action summary
 
-- `continue`：发失败事件，但继续执行
-- `fail`：直接向上抛错并终止本轮 run
+OpenAgents 不会把这些全部做成内建 seam，而是给你 carrier 去承载。
 
-## Builtin Pattern 说明
+## 3. 一次 run 的主流程
 
-### `react`
+builtin runtime 的执行顺序可以概括为：
 
-`ReActPattern` 当前有两种模式。
+1. `Runtime.from_config()` 或 `Runtime.from_dict()` 装顶层组件
+2. `Runtime.run_detailed()` 找到目标 agent
+3. `Runtime` 创建或复用 `(session_id, agent_id)` 插件 bundle
+4. `DefaultRuntime.run()` 发事件并获取 session lock
+5. `context_assembler.assemble()` 组装 transcript / artifacts / metadata
+6. runtime budget 注入 pattern
+7. 用 `execution_policy + tool_executor` 重新绑定 tools
+8. `pattern.setup()` 构建 `ExecutionContext`
+9. skill prompt / metadata hook
+10. `memory.inject()`
+11. skill 的 context / tool filter hook
+12. skill pre-run hook
+13. `pattern.execute()`
+14. skill post-run hook
+15. `memory.writeback()`
+16. transcript / artifacts 持久化
+17. `context_assembler.finalize()`
+18. 返回 `RunResult`
 
-有 LLM 时：
+两个关键细节：
 
-- 给模型发送严格的 JSON-only prompt
-- 只接受 `final`、`continue`、`tool_call` 三种 action
-- 对 `tool_call` 会暂存 pending tool id，下一步把结果格式化成 `Tool[tool_id] => ...`
+- agent 插件 bundle 按 `(session_id, agent_id)` 缓存
+- builtin LLM client 按 `agent.id` 缓存
 
-没有 LLM 时：
+所以“插件生命周期”和“LLM client 生命周期”不是一回事。
 
-- `/tool <tool_id> <query>` 会触发一次 tool call，参数形如 `{"query": "..."}`
-- 其他输入会走 echo fallback，并带上 conversation history
+## 4. 真正应该用好的 state carrier
 
-### `plan_execute`
+绝大多数 middle protocol，并不需要新 seam。  
+它们需要的是“放在对的 carrier 上”。
 
-- 先用 LLM 生成 plan
-- 把 plan 放在 `context.scratch["_plan"]`
-- 然后按步骤执行
-- 没有 LLM 时基本没有实际价值
+### `RunRequest.context_hints`
 
-### `reflexion`
+适合调用方传入的运行提示。
 
-- 会根据最近的 tool results 做反思
-- 可以产出带调整参数的 retry
-- 到达 `max_retries` 或 `max_steps` 后停止
+例如：
 
-## Builtin Memory 说明
+- `task_id`
+- `workspace_root`
+- `interaction_mode`
+- `requested_depth`
 
-### `buffer`
+如果这个信息是 caller 在发起 run 时就知道的，优先放这里。
 
-- 把交互历史保存在 session state 里
-- 默认 state key：`memory_buffer`
-- 默认 memory view key：`history`
-- 写回字段包括 `input`、`tool_results`，以及可选的 `output`
+### `RunRequest.metadata`
 
-### `window_buffer`
+适合外部追踪和观测信息。
 
-- 基于 `buffer` 实现
-- 会把 `window_size` 转成 `max_items`
-- 注入到 `memory_view` 的始终是最近一段窗口数据
+例如：
 
-### `mem0`
+- trace id
+- upstream request id
+- source
+- user id
 
-- 需要额外安装 `mem0` 依赖
-- 不单独配置 memory 专用 API key，而是复用 agent 的 LLM 配置
-- 会把命中的语义记忆写入 `memory_view["mem0_history"]` 和 `memory_view["history"]`
+如果主要是给系统或观测链路看的，用 `metadata`。
 
-### `chain`
+### `ExecutionContext.state`
 
-- 通过 `config.memories` 组合多个 memory refs
-- 适合把短期 buffer 和记忆 backend 组合使用
+适合跨 step、跨 turn 保留的 durable state。
 
-## Events
+例如：
 
-builtin event bus 会把事件历史保存在内存中，并支持 `*` wildcard subscriber。
+- 协议状态机
+- planner state
+- session task state
+- memory 持久状态
+- last successful delivery
 
-runtime 发出的生命周期事件包括：
+### `ExecutionContext.scratch`
 
-- `run.requested`
-- `run.validated`
-- `session.acquired`
-- `context.created`
-- `memory.injected`
-- `memory.inject_failed`
-- `memory.writeback_succeeded`
-- `memory.writeback_failed`
-- `run.completed`
-- `run.failed`
+适合单轮 run 内的临时状态。
 
-pattern 侧常见事件包括：
+例如：
 
-- `pattern.step_started`
-- `pattern.step_finished`
-- `tool.called`
-- `tool.succeeded`
-- `tool.failed`
-- `llm.called`
-- `llm.succeeded`
+- pending tool id
+- 当前计划草稿
+- 临时 parse 结果
+- 当前 step 的局部变量
 
-## 本地开发
+如果这个东西当前 run 结束后丢掉也没关系，就放 `scratch`。
 
-安装开发依赖：
+### `ExecutionContext.assembly_metadata`
 
-```bash
-uv sync --extra dev
-```
+适合由 `context_assembler` 产出、再被 pattern / skill / tool 消费的协议。
 
-运行测试：
+例如：
 
-```bash
-uv run pytest -q
-```
+- context packet
+- transcript trimming 统计
+- retrieval selection metadata
+- task envelope
+- summary provenance
 
-运行 quickstart：
+这是做 app-defined context protocol 最好的位置之一。
 
-```bash
-uv run python examples/quickstart/run_demo.py
-```
+### `ExecutionContext.skill_metadata`
 
-运行真实 provider 示例：
+适合 skill 产生的结构化运行信息。
 
-```bash
-uv run python examples/openai_compatible/run_demo.py
-uv run python examples/longcat/run_demo.py
-```
+例如：
 
-## 常见问题
+- active role
+- specialization metadata
+- review mode settings
+- strategy flags
 
-### `Unknown agent id`
+### `RunArtifact`
 
-传给 `Runtime.run()` 的 `agent_id` 跟配置里的 `agents[].id` 不一致。
+适合“本轮 run 真正产出的命名结果”。
 
-### `llm.api_base is required for provider 'openai_compatible'`
+例如：
 
-`openai_compatible` 在运行前就会被校验，必须在 JSON 里配置 `llm.api_base`。
+- delivery report
+- patch plan
+- generated file
+- research note
+- evaluation output
 
-### mock 能跑，但去掉 `llm` 后 pattern 不工作
+如果某个结果未来可能被 session、UI、上层系统消费，就不要只藏在 `state` 里。
 
-不是所有 pattern 都能在没有 LLM 的情况下正常工作：
+## 5. 一个新协议到底该放哪？
 
-- `react`：可以，有 non-LLM fallback
-- `plan_execute`：基本不行
-- `reflexion`：没有 LLM 时只会返回 `continue`，不会产生有效结果
+按下面顺序判断。
 
-### MCP tool 导入失败
+### 它改变 tool 的执行方式吗？
 
-安装 MCP extra：
+用 `tool_executor`。
 
-```bash
-uv add "openagents-sdk[mcp]"
-```
+例如：
 
-### Mem0 memory 一直是空
+- timeout
+- 参数校验
+- stream passthrough
+- 错误规范化
 
-安装 Mem0 extra，并保证 agent 的 LLM 凭据可用：
+### 它决定 tool 能不能执行吗？
 
-```bash
-uv add "openagents-sdk[mem0]"
-```
+用 `execution_policy`。
 
-## 延伸阅读
+例如：
 
+- allow / deny
+- filesystem root 限制
+- 动态权限判断
+- 策略元信息
+
+### 它决定 run 进来时吃什么上下文吗？
+
+用 `context_assembler`。
+
+例如：
+
+- transcript trimming
+- artifact trimming
+- retrieval packaging
+- task packet assembly
+
+### 它是在回答“你刚做了什么”之类的 follow-up 吗？
+
+用 `followup_resolver`。
+
+### 它是在修 provider 的空响应、坏响应、降级路径吗？
+
+用 `response_repair_policy`。
+
+### 它只是产品自己的任务语义吗？
+
+不要急着加 seam。
+
+优先把它做成 app protocol，放进：
+
+- `context_hints`
+- `state`
+- `scratch`
+- `assembly_metadata`
+- `skill_metadata`
+- `RunArtifact`
+
+## 6. 高设计密度 agent 的常见正确姿势
+
+对很多复杂 single-agent 系统来说，最健康的组合是：
+
+- `pattern` 负责 agent loop
+- `memory` 负责记忆读写
+- `skill` 负责运行时增强
+- `tool_executor` 负责 tool 执行形态
+- `execution_policy` 负责权限判断
+- `context_assembler` 负责上下文入口
+- app protocol 放在 context carrier
+
+这已经足够支撑很多复杂 agent，而不需要 seam 爆炸。
+
+## 7. 什么时候值得新建 seam？
+
+只有在下面这些条件同时满足时，才值得认真考虑：
+
+- 这个问题在多个应用里重复出现
+- 它影响的是 runtime 行为，不只是产品语义
+- 它需要自己的 selector 和生命周期
+- 用现有 carrier 表达会很别扭
+- 你准备长期维护 builtin default 和测试
+
+如果没有同时满足，正确答案通常是：
+
+**先做成 app-defined protocol。**
+
+## 8. Hot Reload 与生命周期
+
+`Runtime.reload()` 的语义是：
+
+- 重新加载 config 文件
+- 更新未来 run 会用到的 agent 定义
+- 清理 removed agent 的缓存
+- 失效发生变化 agent 的 LLM client
+- 不热切换顶层 `runtime` / `session` / `events`
+
+这再次说明：  
+top-level runtime machinery 是稳定容器，不应该混进太多产品基础设施。
+
+## 9. 常见反模式
+
+### 反模式：所有逻辑都塞进 `Pattern.execute()`
+
+这样最容易把整个系统写糊。
+
+应该往外拆：
+
+- execution shape -> `tool_executor`
+- permission -> `execution_policy`
+- context entry -> `context_assembler`
+- follow-up fallback -> `followup_resolver`
+- response degradation -> `response_repair_policy`
+
+### 反模式：所有协议都塞进一个大 `state` dict
+
+按语义分层：
+
+- durable state -> `state`
+- transient state -> `scratch`
+- assembled context -> `assembly_metadata`
+- skill metadata -> `skill_metadata`
+- caller hint -> `context_hints`
+- persisted output -> `RunArtifact`
+
+### 反模式：过早把产品语义升级成 seam
+
+如果只有你的 app 会用，先不要进 SDK。
+
+### 反模式：把产品基础设施塞进 SDK
+
+queue、approval、orchestration、UI workflow 应该在 kernel 之上。
+
+## 10. 推荐演化策略
+
+最稳的演化顺序是：
+
+1. 先用现有 seam + carrier 在 app 层实现真实需求
+2. 在真实示例或真实产品里证明这个需求是稳定存在的
+3. 再判断它是否值得升级为 seam
+4. 最后才考虑 builtin / registry / docs
+
+这样可以避免 seam 越抽越多、kernel 越做越胖。
+
+## 11. 下一步看什么
+
+- [Seam 与扩展点](seams-and-extension-points.md)
 - [配置参考](configuration.md)
 - [插件开发](plugin-development.md)
 - [API 参考](api-reference.md)

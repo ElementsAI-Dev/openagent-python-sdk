@@ -10,4 +10,4 @@ def test_openagent_cli_default_config_prefers_deterministic_tool_use():
 
     agent = data["agents"][0]
     assert agent["llm"]["temperature"] == 0.0
-    assert agent["pattern"]["config"]["empty_stream_retries"] == 2
+    assert agent["pattern"]["config"]["empty_stream_retries"] == 6

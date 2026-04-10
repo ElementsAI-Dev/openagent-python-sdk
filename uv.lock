@@ -877,6 +877,9 @@ wheels = [
 name = "openagents-sdk"
 version = "0.0.1"
 source = { editable = "." }
+dependencies = [
+    { name = "httpx", extra = ["http2"] },
+]
 
 [package.optional-dependencies]
 all = [
@@ -905,6 +908,7 @@ openai = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", marker = "extra == 'openai'", specifier = ">=0.27.0" },
+    { name = "httpx", extras = ["http2"], specifier = ">=0.28.1" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
     { name = "mem0ai", marker = "extra == 'mem0'", specifier = ">=1.0.5" },
     { name = "openagents-sdk", extras = ["mcp", "mem0", "openai", "dev"], marker = "extra == 'all'" },

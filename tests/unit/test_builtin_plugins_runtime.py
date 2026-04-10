@@ -4,13 +4,16 @@ from pathlib import Path
 
 import pytest
 
+import openagents.llm.registry as llm_registry
 from openagents.config.loader import load_config, load_config_dict
+from openagents.llm.providers.mock import MockLLMClient
 from openagents.runtime.runtime import Runtime
 
 
 @pytest.mark.asyncio
-async def test_quickstart_builtin_echo_flow():
+async def test_quickstart_builtin_echo_flow(monkeypatch):
     config = load_config(Path("examples/quickstart/agent.json"))
+    monkeypatch.setattr(llm_registry, "create_llm_client", lambda llm: MockLLMClient())
     runtime = Runtime(config)
 
     result = await runtime.run(agent_id="assistant", session_id="demo", input_text="hello")
@@ -27,8 +30,9 @@ async def test_quickstart_builtin_echo_flow():
 
 
 @pytest.mark.asyncio
-async def test_builtin_react_tool_call_flow():
+async def test_builtin_react_tool_call_flow(monkeypatch):
     config = load_config(Path("examples/quickstart/agent.json"))
+    monkeypatch.setattr(llm_registry, "create_llm_client", lambda llm: MockLLMClient())
     runtime = Runtime(config)
 
     result = await runtime.run(

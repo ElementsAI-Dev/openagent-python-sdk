@@ -4,7 +4,8 @@ import types
 
 import pytest
 
-import openagents.llm.providers.anthropic as anthropic_module
+from openagents.llm.base import LLMUsage
+from openagents.llm.providers import _http_base as http_base_module
 from openagents.llm.providers.anthropic import AnthropicClient
 
 
@@ -28,9 +29,10 @@ class _FakeStreamResponse:
 
 
 class _FakeAsyncClient:
-    def __init__(self, *, timeout=None, records: list[bytes]) -> None:
+    def __init__(self, *, timeout=None, records: list[bytes], **kwargs) -> None:
         self.timeout = timeout
         self.records = records
+        self.kwargs = kwargs
 
     async def __aenter__(self):
         return self
@@ -57,8 +59,9 @@ async def test_complete_stream_preserves_anthropic_delta_payload(monkeypatch):
     fake_httpx = types.SimpleNamespace(
         Timeout=lambda *args, **kwargs: None,
         AsyncClient=lambda **kwargs: _FakeAsyncClient(records=records, **kwargs),
+        Limits=lambda **kwargs: None,
     )
-    monkeypatch.setattr(anthropic_module, "httpx", fake_httpx)
+    monkeypatch.setattr(http_base_module, "httpx", fake_httpx)
 
     client = AnthropicClient(api_base="https://api.anthropic.com", model="claude-test")
 
@@ -84,8 +87,9 @@ async def test_complete_stream_normalizes_content_block_start_payload(monkeypatc
     fake_httpx = types.SimpleNamespace(
         Timeout=lambda *args, **kwargs: None,
         AsyncClient=lambda **kwargs: _FakeAsyncClient(records=records, **kwargs),
+        Limits=lambda **kwargs: None,
     )
-    monkeypatch.setattr(anthropic_module, "httpx", fake_httpx)
+    monkeypatch.setattr(http_base_module, "httpx", fake_httpx)
 
     client = AnthropicClient(api_base="https://api.anthropic.com", model="claude-test")
 
@@ -110,8 +114,9 @@ async def test_complete_stream_surfaces_json_error_body_without_sse_delimiter(mo
     fake_httpx = types.SimpleNamespace(
         Timeout=lambda *args, **kwargs: None,
         AsyncClient=lambda **kwargs: _FakeAsyncClient(records=records, **kwargs),
+        Limits=lambda **kwargs: None,
     )
-    monkeypatch.setattr(anthropic_module, "httpx", fake_httpx)
+    monkeypatch.setattr(http_base_module, "httpx", fake_httpx)
 
     client = AnthropicClient(
         api_base="https://api.minimax.chat/v1",
@@ -126,3 +131,43 @@ async def test_complete_stream_surfaces_json_error_body_without_sse_delimiter(mo
     assert len(chunks) == 1
     assert chunks[0].type == "error"
     assert "login fail" in (chunks[0].error or "")
+
+
+@pytest.mark.asyncio
+async def test_complete_stream_carries_usage_and_stop_reason_from_message_events(monkeypatch):
+    records = [
+        (
+            b"event: message_start\n"
+            b'data: {"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":1}}}\n\n'
+        ),
+        (
+            b"event: content_block_delta\n"
+            b'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}\n\n'
+        ),
+        (
+            b"event: message_delta\n"
+            b'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":4}}\n\n'
+        ),
+        b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    ]
+
+    fake_httpx = types.SimpleNamespace(
+        Timeout=lambda *args, **kwargs: None,
+        AsyncClient=lambda **kwargs: _FakeAsyncClient(records=records, **kwargs),
+        Limits=lambda **kwargs: None,
+    )
+    monkeypatch.setattr(http_base_module, "httpx", fake_httpx)
+
+    client = AnthropicClient(api_base="https://api.anthropic.com", model="claude-test")
+
+    chunks = []
+    async for chunk in client.complete_stream(messages=[{"role": "user", "content": "hello"}]):
+        chunks.append(chunk)
+
+    assert len(chunks) == 4
+    assert chunks[0].type == "message_start"
+    assert chunks[1].type == "content_block_delta"
+    assert chunks[2].type == "message_delta"
+    assert chunks[3].type == "message_stop"
+    assert chunks[3].content == {"stop_reason": "end_turn"}
+    assert chunks[3].usage == LLMUsage(input_tokens=10, output_tokens=4, total_tokens=14)

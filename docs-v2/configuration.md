@@ -1,8 +1,16 @@
 # 配置参考
 
-本文档描述 `openagents.config.load_config()` 和 `Runtime.from_config()` 当前接受的 JSON 配置格式。
+这份文档描述 `load_config()` 和 `Runtime.from_config()` 当前接受的 JSON 配置格式。
 
-## 根结构
+更重要的是，它解释配置分别落在哪三层：
+
+- app infrastructure
+- agent 组件与 seam
+- 不应该被 SDK schema 建模的产品协议
+
+## 1. 根结构
+
+配置根对象对应 `AppConfig`。
 
 ```json
 {
@@ -16,20 +24,20 @@
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `version` | string | 否 | `"1.0"` | 必须是非空字符串 |
-| `runtime` | object | 否 | `{ "type": "default" }` | App 级 runtime plugin selector |
-| `session` | object | 否 | `{ "type": "in_memory" }` | App 级 session manager selector |
-| `events` | object | 否 | `{ "type": "async" }` | App 级 event bus selector |
+| `version` | string | 否 | `"1.0"` | 配置版本 |
+| `runtime` | object | 否 | `{ "type": "default" }` | 顶层 runtime selector |
+| `session` | object | 否 | `{ "type": "in_memory" }` | 顶层 session selector |
+| `events` | object | 否 | `{ "type": "async" }` | 顶层 event bus selector |
 | `agents` | array | 是 | 无 | 至少要有一个 agent |
 
-## Selector 规则
+## 2. Selector 规则
 
-配置里有两种 selector：
+OpenAgents 有两种 selector：
 
-- `type`：选择 builtin plugin 或 decorator 注册名
-- `impl`：通过 Python dotted path 导入符号
-
-但不同位置的规则不完全一样。
+- `type`
+  - 选择 builtin plugin 或 decorator 注册名
+- `impl`
+  - 通过 Python dotted path 导入符号
 
 ### 顶层 selector
 
@@ -42,22 +50,36 @@
 ```
 
 ```json
-{"runtime": {"impl": "mypkg.runtime.CustomRuntime"}}
+{"runtime": {"impl": "myapp.runtime.CustomRuntime"}}
 ```
 
 非法：
 
 ```json
-{"runtime": {"type": "default", "impl": "mypkg.runtime.CustomRuntime"}}
+{"runtime": {"type": "default", "impl": "myapp.runtime.CustomRuntime"}}
 ```
 
-### Agent 级 selector
+### agent 级 selector
 
-agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `impl`。
+agent 级 selector 至少要提供一个 `type` 或 `impl`。
 
-如果两者同时出现，loader 以 `impl` 为准，`type` 会被忽略。
+如果两者同时出现，loader 以 `impl` 为准。
 
-## App 级组件
+适用范围：
+
+- `memory`
+- `pattern`
+- `skill`
+- `tool_executor`
+- `execution_policy`
+- `context_assembler`
+- `followup_resolver`
+- `response_repair_policy`
+- `tools[]`
+
+## 3. 顶层组件
+
+这些字段配置的是 app 级运行容器，不是 agent 自己的业务行为。
 
 ### `runtime`
 
@@ -70,7 +92,7 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
 }
 ```
 
-当前 builtin runtime：
+当前 builtin：
 
 - `default`
 
@@ -85,7 +107,7 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
 }
 ```
 
-当前 builtin session manager：
+当前 builtin：
 
 - `in_memory`
 
@@ -100,11 +122,13 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
 }
 ```
 
-当前 builtin event bus：
+当前 builtin：
 
 - `async`
 
-## Agent 结构
+## 4. AgentDefinition
+
+一个 agent 定义大概长这样：
 
 ```json
 {
@@ -113,6 +137,11 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
   "memory": {"type": "window_buffer"},
   "pattern": {"type": "react"},
   "llm": {"provider": "mock"},
+  "tool_executor": {"type": "safe"},
+  "execution_policy": {"type": "filesystem"},
+  "context_assembler": {"type": "summarizing"},
+  "followup_resolver": {"type": "basic"},
+  "response_repair_policy": {"type": "basic"},
   "tools": [],
   "runtime": {
     "max_steps": 16,
@@ -125,18 +154,49 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `id` | string | 是 | `Runtime.run()` 用它定位 agent |
+| `id` | string | 是 | runtime 定位 agent 用 |
 | `name` | string | 是 | 展示名称 |
-| `memory` | object | 是 | Memory plugin selector 和 config |
-| `pattern` | object | 是 | Pattern plugin selector 和 config |
-| `llm` | object | 否 | 可选的 LLM provider 配置 |
-| `tool_executor` | object | 否 | agent 级 tool execution seam selector |
-| `execution_policy` | object | 否 | agent 级 execution policy seam selector |
-| `context_assembler` | object | 否 | agent 级 context assembly seam selector |
-| `tools` | array | 否 | Tool selectors，禁用项不会被加载 |
-| `runtime` | object | 否 | agent 级 runtime 参数，不是 plugin selector |
+| `memory` | object | 是 | memory selector |
+| `pattern` | object | 是 | pattern selector |
+| `llm` | object | 否 | provider 配置 |
+| `skill` | object | 否 | skill selector |
+| `tool_executor` | object | 否 | tool 执行 seam |
+| `execution_policy` | object | 否 | policy seam |
+| `context_assembler` | object | 否 | context seam |
+| `followup_resolver` | object | 否 | follow-up seam |
+| `response_repair_policy` | object | 否 | response repair seam |
+| `tools` | array | 否 | tool 列表 |
+| `runtime` | object | 否 | agent 级运行限制，不是 runtime plugin selector |
 
-## Memory
+## 5. agent.runtime
+
+`agent.runtime` 是这个 agent 的运行限制配置。
+
+```json
+{
+  "runtime": {
+    "max_steps": 16,
+    "step_timeout_ms": 30000,
+    "session_queue_size": 1000,
+    "event_queue_size": 2000
+  }
+}
+```
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `max_steps` | int | `16` | 逻辑 step 上限 |
+| `step_timeout_ms` | int | `30000` | 单 step timeout |
+| `session_queue_size` | int | `1000` | 目前主要是 schema 级字段 |
+| `event_queue_size` | int | `2000` | 目前主要是 schema 级字段 |
+
+注意：
+
+- 这些字段都必须是正整数
+- builtin `DefaultRuntime` 当前直接消费的是 `max_steps` 和 `step_timeout_ms`
+- `session_queue_size`、`event_queue_size` 当前会被校验，但 builtin runtime 不直接消费
+
+## 6. Memory
 
 ```json
 {
@@ -152,32 +212,22 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `type` / `impl` | string | 无 | 至少要有一个 |
-| `config` | object | `{}` | plugin 自己消费的配置 |
+| `type` / `impl` | string | 无 | selector |
+| `config` | object | `{}` | memory 自己消费的配置 |
 | `on_error` | string | `"continue"` | 只能是 `continue` 或 `fail` |
 
-当前 builtin memory：
-
-- `buffer`：把交互历史追加到 session state 的 `memory_buffer`
-- `window_buffer`：在 `buffer` 基础上只保留最近 `window_size` 条
-- `mem0`：可选的语义记忆 backend，复用 agent 的 LLM 配置
-- `chain`：通过 `config.memories` 组合多个 memory plugin
-
-常见 config：
+builtin memory：
 
 - `buffer`
-  - `state_key`
-  - `view_key`
-  - `max_items`
+  - append-only in-session memory
 - `window_buffer`
-  - `window_size`
+  - 最近窗口版 buffer
 - `mem0`
-  - `collection_name`
-  - `search_limit`
+  - 语义记忆 backend
 - `chain`
-  - `memories`
+  - 组合多个 memory
 
-## Pattern
+## 7. Pattern
 
 ```json
 {
@@ -191,19 +241,17 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
 }
 ```
 
-当前 builtin pattern：
+builtin pattern：
 
 - `react`
-  - 默认对话 pattern
-  - 没有 LLM 时可回退到 echo / `/tool` 模式
-  - 有 LLM 时要求模型输出结构化 JSON action
+  - JSON action loop
+  - 没有 LLM 时也能 fallback
 - `plan_execute`
-  - 先规划再执行
-  - 没有 LLM 时基本没有意义
+  - 先 plan 再 execute
 - `reflexion`
-  - 会对最近 tool 结果做反思，并可能重试
+  - 基于最近 tool result 做反思和重试
 
-通用 config：
+常见 pattern config：
 
 - `max_steps`
 - `step_timeout_ms`
@@ -213,9 +261,10 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
 - `tool_prefix`
 - `echo_prefix`
 
-## LLM
+## 8. LLM
 
-`llm` 是可选字段。不配时，所选 pattern 必须自己处理没有 `llm_client` 的情况。
+`llm` 是可选字段。  
+如果省略，所选 pattern 必须能在没有 `llm_client` 的情况下运行。
 
 ```json
 {
@@ -234,32 +283,19 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
 支持的 provider：
 
 - `mock`
-- `openai_compatible`
 - `anthropic`
+- `openai_compatible`
 
 校验规则：
 
-- `provider` 必须是上面三种之一
+- `provider` 必须是支持值之一
 - `openai_compatible` 必须提供 `api_base`
 - `timeout_ms` 必须是正整数
 - `max_tokens` 如果提供，必须是正整数
-- 未知附加字段会保留在 `LLMOptions.extra`
 
-factory 使用的默认值：
+## 9. Tools
 
-- `mock`
-  - 不需要网络依赖
-- `openai_compatible`
-  - 默认 model：`gpt-4o-mini`
-  - 默认 key env：`OPENAI_API_KEY`
-- `anthropic`
-  - 默认 API base：`https://api.anthropic.com`
-  - 默认 model：`claude-3-haiku-20240307`
-  - 默认 key env：`ANTHROPIC_API_KEY`
-
-## Tools
-
-单个 tool 的结构：
+单个 tool 配置示例：
 
 ```json
 {
@@ -272,12 +308,12 @@ factory 使用的默认值：
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `id` | string | 是 | 无 | pattern 调用它时使用的 id |
-| `type` / `impl` | string | 条件必填 | 无 | 至少要有一个 |
+| `id` | string | 是 | 无 | pattern 调用时使用的 id |
+| `type` / `impl` | string | 条件必填 | 无 | 至少要有一个 selector |
 | `enabled` | boolean | 否 | `true` | `false` 时不会被加载 |
-| `config` | object | 否 | `{}` | plugin 自定义配置 |
+| `config` | object | 否 | `{}` | tool 自己消费的配置 |
 
-当前 builtin tool ids：
+builtin tool id：
 
 - Search：`builtin_search`
 - Files：`read_file`、`write_file`、`list_files`、`delete_file`
@@ -289,9 +325,9 @@ factory 使用的默认值：
 - Math：`calc`、`percentage`、`min_max`
 - MCP bridge：`mcp`
 
-## Agent 级执行 Seam
+## 10. Agent 级 execution seam
 
-这三类配置都写在 agent 下面，不是顶层 App 级组件。
+这几类配置写在 agent 下，而不是顶层。
 
 ### `tool_executor`
 
@@ -299,17 +335,21 @@ factory 使用的默认值：
 {
   "tool_executor": {
     "type": "safe",
-    "config": {"default_timeout_ms": 2000}
+    "config": {
+      "default_timeout_ms": 2000
+    }
   }
 }
 ```
 
-用途：
+适合解决：
 
-- 负责 tool 的实际执行方式
-- 做参数校验、timeout、stream passthrough、错误规范化
+- 参数校验
+- timeout
+- stream passthrough
+- 执行错误规范化
 
-当前 builtin：
+builtin：
 
 - `safe`
 
@@ -322,18 +362,19 @@ factory 使用的默认值：
     "config": {
       "read_roots": ["workspace"],
       "write_roots": ["workspace"],
-      "allow_tools": ["read_file", "write_file"]
+      "allow_tools": ["read_file"]
     }
   }
 }
 ```
 
-用途：
+适合解决：
 
-- 在 tool 执行前决定 allow / deny
-- 适合文件边界、工具白名单、工具黑名单这类策略
+- filesystem allowlist
+- tool allow / deny
+- 权限判断
 
-当前 builtin：
+builtin：
 
 - `filesystem`
 
@@ -344,85 +385,150 @@ factory 使用的默认值：
   "context_assembler": {
     "type": "summarizing",
     "config": {
-      "max_messages": 10,
-      "max_artifacts": 5,
+      "max_messages": 20,
+      "max_artifacts": 10,
       "include_summary_message": true
     }
   }
 }
 ```
 
-用途：
+适合解决：
 
-- 组装当前 run 的 transcript / session artifacts
-- 控制 working set，而不是 memory 存储本身
+- transcript trimming
+- artifact trimming
+- assembly metadata 注入
+- app-defined context packet
 
-当前 builtin：
+builtin：
 
 - `summarizing`
 
-### 兼容说明
+## 11. Agent 级 semantic recovery seam
 
-当前 builtin runtime 仍兼容旧的 `runtime.config.tool_executor` / `execution_policy` / `context_assembler` 写法，但文档主路径是 agent 级：
-
-- `agents[].tool_executor`
-- `agents[].execution_policy`
-- `agents[].context_assembler`
-
-## Agent 级 Runtime 参数
-
-这个块必须写在每个 agent 下面：
+### `followup_resolver`
 
 ```json
 {
-  "runtime": {
-    "max_steps": 16,
-    "step_timeout_ms": 30000,
-    "session_queue_size": 1000,
-    "event_queue_size": 2000
+  "followup_resolver": {
+    "type": "basic"
   }
 }
 ```
 
-默认值：
+适合解决：
 
-- `max_steps`：`16`
-- `step_timeout_ms`：`30000`
-- `session_queue_size`：`1000`
-- `event_queue_size`：`2000`
+- 本地 follow-up 语义兜底
+- 上一轮做了什么
+- 本地 action summary
 
-四个值都必须是正整数。
+builtin：
 
-## 完整示例
+- `basic`
+
+### `response_repair_policy`
 
 ```json
 {
-  "version": "1.0",
-  "runtime": {"type": "default"},
-  "session": {"type": "in_memory"},
-  "events": {"type": "async"},
-  "agents": [
-    {
-      "id": "assistant",
-      "name": "demo-agent",
-      "memory": {"type": "window_buffer", "config": {"window_size": 20}, "on_error": "continue"},
-      "pattern": {"type": "react", "config": {"max_steps": 8}},
-      "llm": {"provider": "mock"},
-      "tool_executor": {"type": "safe"},
-      "execution_policy": {"type": "filesystem", "config": {"read_roots": ["workspace"], "allow_tools": ["read_file"]}},
-      "context_assembler": {"type": "summarizing", "config": {"max_messages": 10, "max_artifacts": 5}},
-      "tools": [
-        {"id": "search", "type": "builtin_search"},
-        {"id": "calc", "type": "calc"}
-      ],
-      "runtime": {"max_steps": 16, "step_timeout_ms": 30000, "session_queue_size": 1000, "event_queue_size": 2000}
-    }
-  ]
+  "response_repair_policy": {
+    "type": "basic"
+  }
 }
 ```
 
-## 相关文档
+适合解决：
 
-- [开发指南](developer-guide.md)
+- empty response 诊断
+- bad response 降级
+- provider recovery
+
+builtin：
+
+- `basic`
+
+## 12. runtime.config 里的 seam 默认值
+
+builtin `default` runtime 还支持在 `runtime.config` 里声明 seam 默认值。
+
+```json
+{
+  "runtime": {
+    "type": "default",
+    "config": {
+      "tool_executor": {
+        "type": "safe",
+        "config": {"default_timeout_ms": 1000}
+      },
+      "execution_policy": {
+        "type": "filesystem",
+        "config": {"read_roots": ["workspace"]}
+      },
+      "context_assembler": {
+        "type": "summarizing",
+        "config": {"max_messages": 10}
+      },
+      "followup_resolver": {
+        "type": "basic"
+      },
+      "response_repair_policy": {
+        "type": "basic"
+      }
+    }
+  }
+}
+```
+
+优先级规则：
+
+- agent 自己声明了 seam，就以 agent 级为准
+- 没声明时，builtin runtime 才会回退到 runtime-level default
+
+适合场景：
+
+- 多个 agent 共享同一套默认执行策略
+- 不想在每个 agent 上重复写一遍相同 seam 配置
+
+## 13. Decorator 注册
+
+当前代码里，这些类别都支持 decorator registry：
+
+- `tool`
+- `memory`
+- `pattern`
+- `runtime`
+- `skill`
+- `session`
+- `event_bus`
+- `tool_executor`
+- `execution_policy`
+- `context_assembler`
+- `followup_resolver`
+- `response_repair_policy`
+
+注意：
+
+- decorator 注册是进程内生效
+- 对应模块必须先被 import，注册名才会存在
+
+## 14. 哪些东西不该放进配置 schema
+
+SDK config 不应该建模所有产品协议。
+
+例如这些通常不该进 schema：
+
+- coding-task DSL
+- review contract
+- mailbox 语义
+- team routing policy
+- UI workflow state
+- 产品状态树
+
+这些东西更应该放在 app-defined protocol 里。
+
+## 15. 继续阅读
+
+- [开发者指南](developer-guide.md)
+- [Seam 与扩展点](seams-and-extension-points.md)
 - [插件开发](plugin-development.md)
 - [API 参考](api-reference.md)
+- [示例说明](examples.md)

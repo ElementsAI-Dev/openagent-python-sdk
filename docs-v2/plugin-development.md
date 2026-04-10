@@ -1,88 +1,125 @@
 # 插件开发
 
-这份文档说明 plugin 是如何被发现和实例化的、每类 plugin 需要声明哪些 capabilities，以及怎样写出能被当前 loader 正常加载的自定义组件。
+这份文档讲三件事：
 
-## Plugin Loader 怎么工作
+1. plugin loader 怎么找和实例化插件
+2. 每类 plugin / seam 最小契约是什么
+3. 什么时候该写插件，什么时候该留在 app-defined protocol
 
-核心逻辑在 `openagents.plugins.loader`。
+## 1. Loader 模型
 
-解析顺序：
+loader 的规则很简单：
 
-1. 如果配置里有 `impl`，优先按 Python dotted path 导入并实例化。
-2. 否则如果有 `type`，再去 builtin registry 或 decorator registry 查找。
-3. 校验必需 capabilities。
-4. 校验声明过 capability 的方法是否真的存在。
+1. 如果配置里有 `impl`，优先 import
+2. 否则如果有 `type`，去 builtin registry 或 decorator registry 查
+3. 实例化符号
+4. 校验 capability 和方法
 
-实例化策略依次尝试：
+实例化时会依次尝试：
 
 - `factory(config=config)`
 - `factory(config)`
 - `factory()`
 
-因此对当前代码来说，class-based plugin 最稳。
+所以 class-based plugin 是最稳定的写法。
 
-## Plugin 来源
+## 2. Plugin 来源
 
 一个 plugin 当前可以来自三类位置：
 
-- `openagents.plugins.registry` 里的 builtin registry
-- `openagents.decorators` 维护的 decorator registry
-- 配置里的 `impl` Python 导入路径
+- builtin registry
+- decorator registry
+- 配置中的 `impl` dotted path
 
-## Capability 要求
+注意：
 
-| Plugin 类型 | 必需 capability | 必需方法 |
-| --- | --- | --- |
-| memory | 不强制固定集合，但 loader 会检查声明过的方法 | 声明了就要实现 `inject` / `writeback` |
-| pattern | `pattern.execute` | `execute` |
-| tool | `tool.invoke` | `invoke` |
-| runtime | `runtime.run` | `run` |
-| session | `session.manage` | `session` |
-| events | `event.emit`，且实际还要求可订阅 | `emit`、`subscribe` |
+- builtin 和 decorator 都通过 registry 查
+- decorator registry 是进程内生效的
+- 如果声明 decorator 的模块没有被 import，注册名就不会存在
 
-常用 capability 常量在 `openagents.interfaces.capabilities`。
+## 3. 推荐写法
 
-## Agent 级执行 Seam
-
-除了 `memory / pattern / tool / skill` 这些直接业务构件之外，当前 SDK 还有三类 agent 级执行 seam：
-
-- `tool_executor`
-- `execution_policy`
-- `context_assembler`
-
-它们控制的是执行策略，不是业务能力本身。
-
-当前这三类 seam 的约束是：
-
-- builtin 可以用 `type`
-- 自定义实现可以用 `impl`
-- 当前不提供 decorator registry，也没有对应的 `get_*` / `list_*` API
-
-## 推荐写法
-
-优先使用 class-based plugin，并显式声明：
+优先写 class-based plugin，并显式提供：
 
 - `config`
 - `capabilities`
+- 所需的方法实现
 
-`@tool` 虽然支持 function-style 注册，但当前 runtime loader 是按“实例化 plugin”这个模型工作的，所以真正用于配置加载时，class-based Tool 更可靠。
+你不一定非要继承 `BasePlugin`，但继承通常更省事，也更一致。
 
-## 自定义 Tool
+## 4. Capability 与方法校验
+
+loader 会检查两件事：
+
+- 必需 capability 是否存在
+- 声明过的 capability 是否真的有对应方法
+
+### 主要 plugin 类型
+
+| 类型 | 必需 capability | 必需方法 |
+| --- | --- | --- |
+| pattern | `pattern.execute` | `execute()` |
+| tool | `tool.invoke` | `invoke()` |
+| runtime | `runtime.run` | `run()` |
+| session | `session.manage` | `session()` |
+| events | `event.emit` | `emit()`，并要求 `subscribe()` |
+
+### memory
+
+memory 稍微特殊一点：
+
+- 如果声明了 `memory.inject`，就必须实现 `inject()`
+- 如果声明了 `memory.writeback`，就必须实现 `writeback()`
+
+### skill
+
+skill 至少要声明一个 skill capability：
+
+- `skill.system_prompt`
+- `skill.tools`
+- `skill.metadata`
+- `skill.context_augment`
+- `skill.tool_filter`
+- `skill.pre_run`
+- `skill.post_run`
+
+## 5. 最重要的判断
+
+在写插件前，先判断这个需求到底属于哪一类：
+
+- plugin category
+- 已有 seam
+- app-defined protocol
+
+经验规则：
+
+- 如果它改变的是 runtime 的可复用行为，用 plugin / seam
+- 如果它表达的是你的产品语义，优先放 app 层
+
+通常应该留在 app 层的东西：
+
+- coding-task envelope
+- review contract
+- workflow state machine
+- 产品自己的 action summary
+- UI 状态语义
+
+## 6. 自定义 Tool
+
+当你要给 pattern 一个可调用的命名能力时，写 Tool。
 
 ```python
 from __future__ import annotations
 
 from typing import Any
 
-from openagents import tool
 from openagents.interfaces.capabilities import TOOL_INVOKE
 from openagents.interfaces.tool import ToolPlugin
 
 
-@tool(name="echo_tool")
 class EchoTool(ToolPlugin):
     name = "echo_tool"
-    description = "回显输入文本。"
+    description = "Echo text with a prefix."
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config or {}, capabilities={TOOL_INVOKE})
@@ -90,33 +127,35 @@ class EchoTool(ToolPlugin):
 
     async def invoke(self, params: dict[str, Any], context: Any) -> Any:
         text = str(params.get("text", "")).strip()
-        return {"text": text, "output": f"{self._prefix}: {text}"}
+        return {"output": f"{self._prefix}: {text}"}
 
     def schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "text": {"type": "string", "description": "要回显的文本"}
+                "text": {"type": "string", "description": "Text to echo"}
             },
             "required": ["text"],
         }
 ```
 
-配置引用：
+配置方式：
 
 ```json
 {
   "tools": [
     {
       "id": "echo",
-      "impl": "mypackage.plugins.EchoTool",
+      "impl": "myapp.plugins.EchoTool",
       "config": {"prefix": "custom"}
     }
   ]
 }
 ```
 
-## 自定义 Memory
+## 7. 自定义 Memory
+
+当你要控制 inject / writeback 行为时，写 Memory。
 
 ```python
 from __future__ import annotations
@@ -147,9 +186,15 @@ class CustomMemory(MemoryPlugin):
         context.state[self._state_key] = history
 ```
 
-## 自定义 Pattern
+## 8. 自定义 Pattern
 
-pattern 通过 `setup()` 收到运行时上下文，通常会保存在 `self.context` 上。
+当你要控制 agent loop 本身时，写 Pattern。
+
+通常写法是：
+
+- `setup()` 接收 runtime 注入的数据
+- 把 `ExecutionContext` 放到 `self.context`
+- 在 `execute()` 里编排工具和模型调用
 
 ```python
 from __future__ import annotations
@@ -166,7 +211,18 @@ class CustomPattern:
         self.capabilities = {PATTERN_EXECUTE, PATTERN_REACT}
         self.context: ExecutionContext | None = None
 
-    async def setup(self, agent_id, session_id, input_text, state, tools, llm_client, llm_options, event_bus) -> None:
+    async def setup(
+        self,
+        agent_id: str,
+        session_id: str,
+        input_text: str,
+        state: dict[str, Any],
+        tools: dict[str, Any],
+        llm_client: Any,
+        llm_options: Any,
+        event_bus: Any,
+        **kwargs: Any,
+    ) -> None:
         self.context = ExecutionContext(
             agent_id=agent_id,
             session_id=session_id,
@@ -188,137 +244,189 @@ class CustomPattern:
         return action["content"]
 ```
 
-## 自定义 Runtime / Session / Event Bus
+## 9. 自定义 Skill
 
-只有当 builtin 的 `default`、`in_memory`、`async` 不够用时，才建议写这三类组件。
+Skill 适合做 runtime augmentation，不适合接管整个 agent loop。
 
-### Runtime
+最适合的职责：
 
-必须声明 `runtime.run`，并实现 `run(...)`。
+- system prompt 片段
+- tool filter
+- metadata 注入
+- before / after hook
+- context augment
 
-### Session manager
+如果你的 skill 已经在接管整个执行主链路，它大概率应该是一个 pattern。
 
-必须声明 `session.manage`，并实现 `session(...)`。
+## 10. 自定义 Tool Executor
 
-如果你希望行为接近 builtin 实现，最好同时实现：
+当问题是“tool 应该怎么执行”时，用 `tool_executor`。
 
-- `get_state()`
-- `set_state()`
-- `delete_session()`
-- `list_sessions()`
+常见场景：
 
-### Event bus
-
-必须实现：
-
-- `subscribe(event_name, handler)`
-- `emit(event_name, **payload)`
-
-如果要对齐 builtin 功能，最好再实现：
-
-- `get_history()`
-- `clear_history()`
-
-## 自定义 Tool Executor
-
-适用场景：
-
-- 想统一 tool timeout
-- 想统一 tool error 规范化
-- 想对 `invoke` / `invoke_stream` 做额外包装
+- 统一 timeout
+- 参数校验
+- stream 适配
+- 错误规范化
 
 最小契约：
 
 - `execute(request) -> ToolExecutionResult`
 - `execute_stream(request)`
 
-配置示例：
+## 11. 自定义 Execution Policy
 
-```json
-{
-  "tool_executor": {
-    "impl": "mypackage.runtime.SafeLikeToolExecutor",
-    "config": {"default_timeout_ms": 2000}
-  }
-}
-```
+当问题是“tool 能不能执行”时，用 `execution_policy`。
 
-## 自定义 Execution Policy
+常见场景：
 
-适用场景：
-
-- 文件访问边界
-- tool allow/deny
-- 按 workspace/env 决定某个 tool 是否能执行
+- file root 限制
+- allow / deny
+- 动态权限判断
+- 产品自己的 policy metadata
 
 最小契约：
 
 - `evaluate(request) -> PolicyDecision`
 
-配置示例：
+## 12. 自定义 Context Assembler
 
-```json
-{
-  "execution_policy": {
-    "impl": "mypackage.runtime.WorkspacePolicy",
-    "config": {"read_roots": ["workspace"]}
-  }
-}
-```
+当问题是“run 应该吃进什么上下文”时，用 `context_assembler`。
 
-## 自定义 Context Assembler
+常见场景：
 
-适用场景：
-
-- 裁剪 transcript
-- 裁剪 session artifacts
-- 注入 assembly metadata
-- 在 run 前后做轻量 context bookkeeping
+- transcript trimming
+- artifact trimming
+- retrieval packaging
+- task packet assembly
+- summary metadata
 
 最小契约：
 
 - `assemble(request, session_state, session_manager) -> ContextAssemblyResult`
 - `finalize(request, session_state, session_manager, result) -> result`
 
-配置示例：
+这也是承载 app-defined context protocol 的最佳 seam 之一。
+
+## 13. 自定义 Follow-up / Repair
+
+### `followup_resolver`
+
+适合本地语义兜底：
+
+- 上一轮做了什么
+- 用了哪些工具
+- 读了哪些文件
+
+最小契约：
+
+- `resolve(context=...) -> FollowupResolution | None`
+
+推荐状态：
+
+- `resolved`
+- `abstain`
+- `error`
+
+### `response_repair_policy`
+
+适合 provider / runtime 的 bad response 降级：
+
+- empty response
+- malformed response
+- 停止但没内容
+- 明确诊断信息
+
+最小契约：
+
+- `repair_empty_response(...) -> ResponseRepairDecision | None`
+
+推荐状态：
+
+- `repaired`
+- `abstain`
+- `error`
+
+## 14. App-Defined Middle Protocol
+
+这是高级应用最关键的一层。
+
+很多团队以为自己需要新 seam，实际上更需要的是“把协议放在对的 carrier 上”。
+
+推荐用这些 carrier：
+
+- caller hint -> `RunRequest.context_hints`
+- 外部追踪信息 -> `RunRequest.metadata`
+- durable per-session state -> `ExecutionContext.state`
+- per-run 临时状态 -> `ExecutionContext.scratch`
+- assembled context protocol -> `ExecutionContext.assembly_metadata`
+- skill 产出的结构化信息 -> `ExecutionContext.skill_metadata`
+- 持久化输出 -> `RunArtifact`
+
+这才是高设计密度 agent 真正该生长的地方。
+
+## 15. Decorator 注册
+
+当前这些类别都支持 decorator registry：
+
+- `tool`
+- `memory`
+- `pattern`
+- `runtime`
+- `skill`
+- `session`
+- `event_bus`
+- `tool_executor`
+- `execution_policy`
+- `context_assembler`
+- `followup_resolver`
+- `response_repair_policy`
+
+示例：
+
+```python
+from openagents import context_assembler
+
+
+@context_assembler(name="trimmed_context")
+class TrimmedContextAssembler:
+    ...
+```
+
+然后在配置里：
 
 ```json
 {
   "context_assembler": {
-    "impl": "mypackage.runtime.CustomContextAssembler",
-    "config": {"max_messages": 20}
+    "type": "trimmed_context"
   }
 }
 ```
 
-## Decorator 注册
+注意：
 
-decorator 注册的本质，是把符号加入当前进程内的 registry。
+- decorator 注册是进程内的
+- 对应模块必须先 import
 
-```python
-from openagents import memory, pattern, runtime, session, event_bus, tool
-```
+## 16. 什么时候不要写 plugin
 
-可用装饰器：
+下面这些情况，通常不该上 plugin：
 
-- `@tool(name="...")`
-- `@memory(name="...")`
-- `@pattern(name="...")`
-- `@runtime(name="...")`
-- `@session(name="...")`
-- `@event_bus(name="...")`
+- 只属于你 app 的任务语义
+- 用结构化数据就能表达
+- 不需要 selector 和复用边界
 
-然后在配置里通过 `type` 引用这个注册名。
+如果只有一个产品会用，先在 app 层做协议，不要急着进 SDK。
 
-## 如何测试 Plugin
+## 17. 如何测试 plugin
 
-最小测试流程：
+最实用的测试路径是：
 
-1. 构造一个 config dict。
-2. 用 `load_config_dict()` 加载。
-3. 创建 `Runtime(config)`。
-4. 运行目标 agent。
-5. 断言输出、session state、事件或 tool results。
+1. 构造一个 config dict
+2. `load_config_dict()`
+3. `Runtime(config)`
+4. 运行目标 agent
+5. 断言输出、session state、事件或 artifacts
 
 示例：
 
@@ -343,9 +451,9 @@ async def test_custom_tool_plugin():
                     "llm": {"provider": "mock"},
                     "tools": [
                         {"id": "custom_tool", "impl": "tests.fixtures.custom_plugins.CustomTool"}
-                    ],
+                    ]
                 }
-            ],
+            ]
         }
     )
     runtime = Runtime(config)
@@ -353,10 +461,18 @@ async def test_custom_tool_plugin():
     assert result
 ```
 
-仓库里的 `examples/custom_impl/` 是一个很好的真实参考。
+仓库里的好参考：
 
-## 相关文档
+- `tests/unit/test_plugin_loader.py`
+- `tests/unit/test_runtime_orchestration.py`
+- `examples/custom_impl/`
+- `examples/runtime_composition/`
+- `examples/production_coding_agent/`
 
+## 18. 继续阅读
+
+- [开发者指南](developer-guide.md)
+- [Seam 与扩展点](seams-and-extension-points.md)
 - [配置参考](configuration.md)
-- [开发指南](developer-guide.md)
 - [API 参考](api-reference.md)
+- [示例说明](examples.md)

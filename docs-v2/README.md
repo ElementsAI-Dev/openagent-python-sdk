@@ -1,55 +1,109 @@
-# OpenAgents SDK 文档索引
+# OpenAgents SDK 文档
 
-这一套文档基于当前仓库代码整理，覆盖 runtime API、config schema、builtin plugins 和 examples 结构。
+这套文档面向基于 OpenAgents kernel 做二次开发的开发者。
 
-## 推荐阅读顺序
+请先记住一条主线：
 
-第一次接触这个项目，建议按下面顺序读：
+- OpenAgents 负责 **single-agent runtime kernel**
+- SDK 提供少量高价值 **runtime seam**
+- 你的应用负责 **产品自己的 middle protocol**
 
-1. [配置参考](configuration.md)
-2. [开发指南](developer-guide.md)
+只要你把这三层分清，这个 SDK 就会很好用。
+
+## 先建立心智模型
+
+```text
+Kernel Protocols
+    RunRequest, RunResult, ExecutionContext, ToolExecutionRequest, SessionArtifact
+
+Runtime Seams
+    tool_executor, execution_policy, context_assembler,
+    followup_resolver, response_repair_policy
+
+App-Defined Protocols
+    task envelopes, coding plans, permission state, review contracts,
+    retrieval plans, artifact taxonomies, product semantics
+```
+
+OpenAgents 最擅长的，不是把所有产品逻辑内建，而是把 kernel 和 seam 做清楚，
+让你在上层自由发明协议。
+
+## 推荐阅读路径
+
+### 第一次接触这个 SDK
+
+1. [开发者指南](developer-guide.md)
+2. [Seam 与扩展点](seams-and-extension-points.md)
+3. [配置参考](configuration.md)
+4. [示例说明](examples.md)
+
+### 要写自定义插件
+
+1. [插件开发](plugin-development.md)
+2. [配置参考](configuration.md)
+3. [API 参考](api-reference.md)
+4. [示例说明](examples.md)
+
+### 要设计自己的 middle protocol
+
+1. [开发者指南](developer-guide.md)
+2. [Seam 与扩展点](seams-and-extension-points.md)
 3. [插件开发](plugin-development.md)
-4. [API 参考](api-reference.md)
-5. [示例说明](examples.md)
-
-## 心智模型
-
-一个 OpenAgents 应用有两层配置：
-
-- App 级：`runtime`、`session`、`events`
-- Agent 级：`memory`、`pattern`、`llm`、`skill`、`tools`、`tool_executor`、`execution_policy`、`context_assembler`、`runtime`
-
-一次 `run` 的主流程是：
-
-1. `Runtime.from_config()` 读取并校验 JSON。
-2. 实例化全局 runtime、session manager、event bus。
-3. 按 `agent_id` 找到目标 agent。
-4. 创建或复用该 session 下的插件实例。
-5. context assembler 组装 transcript / artifacts。
-6. memory 把上下文注入到 `ExecutionContext.memory_view`。
-7. skill / policy / tool executor 参与执行前后阶段。
-8. pattern 执行，过程中可调用 tools 和 LLM。
-9. memory 把本轮交互写回 session state。
-10. event bus 记录完整生命周期事件。
 
 ## 各文档负责什么
 
+- [开发者指南](developer-guide.md)
+  - 讲架构边界、runtime 生命周期、状态 carrier、协议应该放哪层
+- [Seam 与扩展点](seams-and-extension-points.md)
+  - 讲“遇到一个问题，应该改哪层、用哪个 seam、还是留在 app 层”
 - [配置参考](configuration.md)
-  - JSON 结构、默认值、校验规则、builtin selector 和完整示例
-- [开发指南](developer-guide.md)
-  - runtime 执行流、hot reload、session 隔离、本地开发和排障
+  - 讲 JSON schema、selector 规则、builtin 名称、优先级与配置模式
 - [插件开发](plugin-development.md)
-  - plugin loader 行为、capabilities 要求、自定义 Tool / Memory / Pattern / Runtime / Session / Event Bus 的写法
+  - 讲 loader 如何工作、各类插件最小契约是什么、怎么写、怎么测
 - [API 参考](api-reference.md)
-  - 对外导出、类与 helper 签名、接口契约、事件名、异常类型
+  - 讲 package exports、runtime 方法、核心协议对象、plugin contract
 - [示例说明](examples.md)
-  - 每个 example 目录的用途、入口文件和适用场景
+  - 讲 examples 目录下每个示例解决什么问题、应该从哪个开始看
 
-## 快速跳转
+## 快速判断
 
-- 根 README：[../README.md](../README.md)
-- Quickstart config：[../examples/quickstart/agent.json](../examples/quickstart/agent.json)
-- 自定义插件示例：[../examples/custom_impl/plugins.py](../examples/custom_impl/plugins.py)
-- Runtime composition 示例：[../examples/runtime_composition/agent.json](../examples/runtime_composition/agent.json)
-- Runtime 实现：[../openagents/runtime/runtime.py](../openagents/runtime/runtime.py)
-- Builtin registry：[../openagents/plugins/registry.py](../openagents/plugins/registry.py)
+### 一个新协议应该放哪？
+
+- 如果它改变 tool 怎么执行，用 `tool_executor`
+- 如果它决定 tool 能不能执行，用 `execution_policy`
+- 如果它决定本轮 run 吃进什么上下文，用 `context_assembler`
+- 如果它回答本地 follow-up，用 `followup_resolver`
+- 如果它修 bad response / empty response，用 `response_repair_policy`
+- 如果它表达的是产品语义，就放在 app 层，借助：
+  - `ExecutionContext.state`
+  - `ExecutionContext.scratch`
+  - `ExecutionContext.assembly_metadata`
+  - `ExecutionContext.skill_metadata`
+  - `RunRequest.context_hints`
+  - `RunArtifact.metadata`
+
+### 什么时候应该新建 seam？
+
+只有在下面这些条件同时满足时，才值得考虑：
+
+- 这个问题在多个应用里重复出现
+- 它影响的是 runtime 行为，而不是产品语义
+- 它需要独立 selector、独立默认实现、独立测试
+- 用现有 carrier 表达会很别扭
+
+不满足这些条件，就先把它做成 app-defined protocol。
+
+### 这是 multi-agent SDK 吗？
+
+不是。OpenAgents 是 single-agent kernel。  
+team、mailbox、planner、scheduler、approval、UI workflow 都应该放在这层之上。
+
+## 直接看代码
+
+- package exports: [openagents/__init__.py](../openagents/__init__.py)
+- runtime facade: [openagents/runtime/runtime.py](../openagents/runtime/runtime.py)
+- builtin runtime: [openagents/plugins/builtin/runtime/default_runtime.py](../openagents/plugins/builtin/runtime/default_runtime.py)
+- config schema: [openagents/config/schema.py](../openagents/config/schema.py)
+- plugin loader: [openagents/plugins/loader.py](../openagents/plugins/loader.py)
+- builtin registry: [openagents/plugins/registry.py](../openagents/plugins/registry.py)
+- interfaces: [openagents/interfaces](../openagents/interfaces)

@@ -5,10 +5,12 @@ import pytest
 
 from openagents.config.loader import load_config_dict
 from openagents.config.schema import AgentDefinition
+from openagents.llm.base import LLMClient, LLMResponse, LLMUsage
 from openagents.interfaces.runtime import RunRequest
 from openagents.interfaces.session import SessionArtifact
 from openagents.runtime.runtime import Runtime
 from openagents.errors.exceptions import ConfigError
+import openagents.llm.registry as llm_registry
 
 
 def _minimal_config(agent_id: str = "test_agent") -> dict:
@@ -394,3 +396,45 @@ async def test_runtime_rejects_invalid_context_assembler_dependency():
 
     with pytest.raises(TypeError, match="must implement 'assemble'"):
         await runtime.run(agent_id="test_agent", session_id="s1", input_text="hello")
+
+
+class _UsageReportingClient(LLMClient):
+    async def generate(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: dict | None = None,
+        response_format: dict | None = None,
+    ) -> LLMResponse:
+        _ = (messages, model, temperature, max_tokens, tools, tool_choice, response_format)
+        return LLMResponse(
+            output_text='{"type":"final","content":"usage-aware"}',
+            usage=LLMUsage(input_tokens=8, output_tokens=4, total_tokens=12),
+        )
+
+
+@pytest.mark.asyncio
+async def test_runtime_run_detailed_accumulates_llm_usage_from_generate(monkeypatch):
+    config = load_config_dict(_minimal_config())
+    runtime = Runtime(config, _skip_plugin_load=True)
+    monkeypatch.setattr(llm_registry, "create_llm_client", lambda llm: _UsageReportingClient())
+
+    result = await runtime.run_detailed(
+        request=RunRequest(
+            agent_id="test_agent",
+            session_id="usage-session",
+            input_text="hello",
+        )
+    )
+
+    assert result.final_output == "usage-aware"
+    assert result.usage.llm_calls == 1
+    assert result.usage.input_tokens == 8
+    assert result.usage.output_tokens == 4
+    assert result.usage.total_tokens == 12
+
+    await runtime.close()

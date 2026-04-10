@@ -16,3 +16,6 @@ examples/
 openagent_cli/
 CHANGELOG.md
 .claude/
+tests/integration/test_production_coding_agent_example.py
+Mine.md
+README.md

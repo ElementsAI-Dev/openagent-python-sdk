@@ -1,124 +1,166 @@
 # API 参考
 
-本文档覆盖当前对外导出的 package API，以及最关键的接口契约。
+这份文档总结当前最重要的 package exports、runtime surface，以及你真正应该关心的协议对象。
 
-## Package Exports
+它不是源码替代品。  
+它的作用是告诉你：**当前稳定 API 面到底在哪里。**
 
-```python
-from openagents import (
-    AppConfig,
-    Runtime,
-    load_config,
-    run_agent,
-    run_agent_with_config,
-    tool,
-    memory,
-    pattern,
-    runtime,
-    skill,
-    session,
-    event_bus,
-    get_tool,
-    get_memory,
-    get_pattern,
-    get_runtime,
-    get_skill,
-    get_session,
-    get_event_bus,
-    list_tools,
-    list_memories,
-    list_patterns,
-    list_runtimes,
-    list_skills,
-    list_sessions,
-    list_event_buses,
-)
-```
+## 1. package exports
 
-## Runtime
+`openagents` 当前导出：
+
+### Core 入口
+
+- `AppConfig`
+- `Runtime`
+- `load_config`
+- `load_config_dict`
+- `run_agent`
+- `run_agent_detailed`
+- `run_agent_detailed_with_config`
+- `run_agent_with_config`
+- `run_agent_with_dict`
+
+### Decorator
+
+- `tool`
+- `memory`
+- `pattern`
+- `runtime`
+- `skill`
+- `session`
+- `event_bus`
+- `tool_executor`
+- `execution_policy`
+- `context_assembler`
+- `followup_resolver`
+- `response_repair_policy`
+
+### Registry accessors
+
+- `get_tool`
+- `get_memory`
+- `get_pattern`
+- `get_runtime`
+- `get_skill`
+- `get_session`
+- `get_event_bus`
+- `get_tool_executor`
+- `get_execution_policy`
+- `get_context_assembler`
+- `get_followup_resolver`
+- `get_response_repair_policy`
+
+### Registry list helpers
+
+- `list_tools`
+- `list_memories`
+- `list_patterns`
+- `list_runtimes`
+- `list_skills`
+- `list_sessions`
+- `list_event_buses`
+- `list_tool_executors`
+- `list_execution_policies`
+- `list_context_assemblers`
+- `list_followup_resolvers`
+- `list_response_repair_policies`
+
+## 2. Runtime facade
 
 ### `Runtime(config: AppConfig, _skip_plugin_load: bool = False, _config_path: Path | None = None)`
 
-主入口。内部持有 app config、全局 runtime / session / events 组件，以及 session 级插件缓存。
+对外的 runtime facade。内部持有：
+
+- app config
+- 顶层 runtime / session / events 组件
+- 按 session + agent 缓存的插件 bundle
 
 ### `Runtime.from_config(config_path: str | Path) -> Runtime`
 
-从磁盘读取 JSON，完成校验，然后构造 runtime。
+从磁盘加载 JSON 配置，构造 runtime。
+
+### `Runtime.from_dict(payload: dict[str, Any]) -> Runtime`
+
+直接从 Python dict 构造 runtime。
 
 ### `await runtime.run(*, agent_id: str, session_id: str, input_text: str) -> Any`
 
-执行一次 agent run。
-
-可能抛出：
-
-- `ConfigError`：`agent_id` 不存在
-- 下游 runtime / pattern / tool / provider 自己抛出的异常
+兼容型入口，返回 `RunResult.final_output`。  
+如果 run 失败，会抛异常。
 
 ### `await runtime.run_detailed(*, request: RunRequest) -> RunResult`
 
-结构化执行入口。
-
-相比 `run()`：
-
-- 输入是显式 `RunRequest`
-- 输出是显式 `RunResult`
-- 更适合上层 runtime / framework / product 做编排
+结构化入口。  
+如果你在做更高层的 runtime / framework / product，优先用这个。
 
 ### `runtime.run_sync(*, agent_id: str, session_id: str, input_text: str) -> Any`
 
-`run()` 的同步封装，内部使用 `asyncio.run()`。
+`run()` 的同步封装。
 
 ### `await runtime.reload() -> None`
 
-重新加载最初用于构造 runtime 的配置文件。
-
-行为要点：
-
-- 会更新发生变化的 agent 配置
-- 会保留现有的全局 runtime / session / events 组件
-- 顶层组件发生变化时会抛出 `ConfigError`
+重新加载最初的 config 文件。  
+只更新 future run 会用到的 agent 定义，不热切换顶层组件。
 
 ### `await runtime.reload_agent(agent_id: str) -> None`
 
-清理该 agent 在所有活跃 session 下的插件缓存。
+失效一个 agent 在各个 session 下的缓存 bundle。
 
 ### `runtime.get_session_count() -> int`
 
-返回 runtime 当前维护的 session 数量。
+返回当前活跃 session 数量。
 
 ### `await runtime.list_agents() -> list[dict[str, Any]]`
 
-返回已加载 agent 的最小信息列表，只包含 id 和 name。
+返回最小 agent 信息列表，只含 `id` 和 `name`。
 
 ### `await runtime.get_agent_info(agent_id: str) -> dict[str, Any] | None`
 
-返回 agent 配置摘要，以及当前是否已经加载出具体 plugin 实例。
+返回：
+
+- 该 agent 的 selector 配置
+- 当前是否已有已加载的 plugin 实例
 
 ### `await runtime.close_session(session_id: str) -> None`
 
-关闭单个 session，并在可用时调用 `memory.close()`。
+关闭一个 session 的插件 bundle。
 
 ### `await runtime.close() -> None`
 
-关闭所有 session memory，然后依次关闭 runtime / session / events 组件（如果它们实现了 `close()`）。
+关闭 runtime 及可关闭的下游资源。
 
 ### `runtime.event_bus`
 
-属性，返回当前配置的 event bus 实例。
+属性，返回当前 event bus 实例。
 
 ### `runtime.session_manager`
 
-属性，返回当前配置的 session manager 实例。
+属性，返回当前 session manager 实例。
 
-## Config Loading
+## 3. Sync Helper
 
-### `load_config(path: str | Path) -> AppConfig`
+### `run_agent(config_path, *, agent_id, session_id="default", input_text) -> Any`
 
-从磁盘读取 JSON，做结构和语义校验，然后返回 `AppConfig`。
+从文件路径加载配置并同步运行。
 
-可能抛出：
+### `run_agent_with_config(config, *, agent_id, session_id="default", input_text) -> Any`
 
-- `ConfigError`：文件不存在、JSON 非法、schema 错误、验证失败
+从预加载 config 同步运行。
+
+### `run_agent_detailed(config_path, *, agent_id, session_id="default", input_text) -> RunResult`
+
+从文件路径做同步 detailed run。
+
+### `run_agent_detailed_with_config(config, *, agent_id, session_id="default", input_text) -> RunResult`
+
+从预加载 config 做同步 detailed run。
+
+### `run_agent_with_dict(payload, *, agent_id, session_id="default", input_text) -> Any`
+
+直接从 Python dict 做同步运行。
+
+## 4. 配置对象
 
 ### `AppConfig`
 
@@ -143,12 +185,14 @@ from openagents import (
 - `tool_executor: ToolExecutorRef | None`
 - `execution_policy: ExecutionPolicyRef | None`
 - `context_assembler: ContextAssemblerRef | None`
+- `followup_resolver: FollowupResolverRef | None`
+- `response_repair_policy: ResponseRepairPolicyRef | None`
 - `tools: list[ToolRef]`
 - `runtime: RuntimeOptions`
 
 ### `RuntimeOptions`
 
-agent 级 runtime 限制：
+字段：
 
 - `max_steps`
 - `step_timeout_ms`
@@ -157,7 +201,7 @@ agent 级 runtime 限制：
 
 ### `LLMOptions`
 
-provider 配置：
+字段：
 
 - `provider`
 - `model`
@@ -166,71 +210,69 @@ provider 配置：
 - `temperature`
 - `max_tokens`
 - `timeout_ms`
+- `stream_endpoint`
 - `extra`
 
-## Sync Helpers
+## 5. Runtime protocol
 
-### `run_agent(config_path, *, agent_id, session_id="default", input_text) -> Any`
+### `RunBudget`
 
-从文件路径构造 runtime，然后立即调用 `run_sync()`。
+单次 run 的可选限制：
 
-### `run_agent_with_config(config, *, agent_id, session_id="default", input_text) -> Any`
+- `max_steps`
+- `max_duration_ms`
+- `max_tool_calls`
 
-从已加载的 config 对象构造 runtime，然后立即调用 `run_sync()`。
+### `RunArtifact`
 
-## Decorators
+run 产物：
 
-### `@tool(name: str | None = None, description: str = "")`
+- `name`
+- `kind`
+- `payload`
+- `metadata`
 
-把 tool 符号注册进 decorator registry。
+### `RunUsage`
 
-### `@memory(name: str | None = None)`
+run 的 usage 聚合：
 
-注册 memory class。
+- `llm_calls`
+- `tool_calls`
+- `input_tokens`
+- `output_tokens`
+- `total_tokens`
 
-### `@pattern(name: str | None = None)`
+### `RunRequest`
 
-注册 pattern class。
+结构化输入：
 
-### `@runtime(name: str | None = None)`
+- `agent_id`
+- `session_id`
+- `input_text`
+- `run_id`
+- `parent_run_id`
+- `metadata`
+- `context_hints`
+- `budget`
 
-注册 runtime class。
+### `RunResult`
 
-### `@session(name: str | None = None)`
+结构化输出：
 
-注册 session manager class。
+- `run_id`
+- `final_output`
+- `stop_reason`
+- `usage`
+- `artifacts`
+- `error`
+- `exception`
+- `metadata`
 
-### `@event_bus(name: str | None = None)`
+## 6. ExecutionContext
 
-注册 event bus class。
+`ExecutionContext` 是 pattern 和 tool 真正消费的运行态对象。
 
-## Registry Helpers
-
-查询 helper：
-
-- `get_tool(name)`
-- `get_memory(name)`
-- `get_pattern(name)`
-- `get_runtime(name)`
-- `get_session(name)`
-- `get_event_bus(name)`
-
-列表 helper：
-
-- `list_tools()`
-- `list_memories()`
-- `list_patterns()`
-- `list_runtimes()`
-- `list_sessions()`
-- `list_event_buses()`
-
-注意：这些 helper 面向 decorator registry，不等于完整 builtin registry。
-
-## 接口契约
-
-### `ExecutionContext`
-
-pattern 和 tool 可访问的主要字段：
+主要字段：
 
 - `agent_id`
 - `session_id`
@@ -243,14 +285,130 @@ pattern 和 tool 可访问的主要字段：
 - `memory_view`
 - `tool_results`
 - `scratch`
+- `active_skill`
+- `skill_metadata`
+- `system_prompt_fragments`
 - `transcript`
 - `session_artifacts`
 - `assembly_metadata`
 - `run_request`
 - `tool_executor`
 - `execution_policy`
+- `followup_resolver`
+- `response_repair_policy`
 - `usage`
 - `artifacts`
+
+这是 app-defined middle protocol 最重要的 carrier。
+
+## 7. Tool execution protocol
+
+### `ToolExecutionSpec`
+
+执行元信息：
+
+- `concurrency_safe`
+- `interrupt_behavior`
+- `side_effects`
+- `approval_mode`
+- `default_timeout_ms`
+- `reads_files`
+- `writes_files`
+
+### `PolicyDecision`
+
+policy 输出：
+
+- `allowed`
+- `reason`
+- `metadata`
+
+### `ToolExecutionRequest`
+
+结构化 tool 执行输入：
+
+- `tool_id`
+- `tool`
+- `params`
+- `context`
+- `execution_spec`
+- `metadata`
+
+### `ToolExecutionResult`
+
+结构化 tool 执行输出：
+
+- `tool_id`
+- `success`
+- `data`
+- `error`
+- `exception`
+- `metadata`
+
+## 8. Context assembly protocol
+
+### `ContextAssemblyResult`
+
+结构化 pre-run context：
+
+- `transcript`
+- `session_artifacts`
+- `metadata`
+
+## 9. Follow-up / response repair protocol
+
+### `FollowupResolution`
+
+字段：
+
+- `status`
+- `output`
+- `reason`
+- `metadata`
+
+当前推荐状态：
+
+- `resolved`
+- `abstain`
+- `error`
+
+### `ResponseRepairDecision`
+
+字段：
+
+- `status`
+- `output`
+- `reason`
+- `metadata`
+
+当前推荐状态：
+
+- `repaired`
+- `abstain`
+- `error`
+
+## 10. Session protocol
+
+### `SessionArtifact`
+
+字段：
+
+- `name`
+- `kind`
+- `payload`
+- `metadata`
+
+### `SessionCheckpoint`
+
+字段：
+
+- `checkpoint_id`
+- `state`
+- `transcript_length`
+- `artifact_count`
+- `created_at`
+
+## 11. Plugin contract
 
 ### `ToolPlugin`
 
@@ -258,12 +416,12 @@ pattern 和 tool 可访问的主要字段：
 
 - `async invoke(params, context) -> Any`
 - `async invoke_stream(params, context)`
+- `execution_spec() -> ToolExecutionSpec`
 - `schema() -> dict`
 - `describe() -> dict`
 - `validate_params(params) -> tuple[bool, str | None]`
 - `get_dependencies() -> list[str]`
 - `async fallback(error, params, context) -> Any`
-- `execution_spec() -> ToolExecutionSpec`
 
 ### `ToolExecutorPlugin`
 
@@ -296,7 +454,7 @@ pattern 和 tool 可访问的主要字段：
 - `async react() -> dict[str, Any]`
 - `async emit(event_name, **payload) -> None`
 - `async call_tool(tool_id, params=None) -> Any`
-- `async call_llm(messages, model=None, temperature=None, max_tokens=None) -> str`
+- `async call_llm(...) -> str`
 - `async compress_context() -> None`
 - `add_artifact(...) -> None`
 
@@ -319,6 +477,18 @@ pattern 和 tool 可访问的主要字段：
 - `async assemble(request, session_state, session_manager) -> ContextAssemblyResult`
 - `async finalize(request, session_state, session_manager, result) -> result`
 
+### `FollowupResolverPlugin`
+
+主要方法：
+
+- `async resolve(context=...) -> FollowupResolution | None`
+
+### `ResponseRepairPolicyPlugin`
+
+主要方法：
+
+- `async repair_empty_response(...) -> ResponseRepairDecision | None`
+
 ### `RuntimePlugin`
 
 主要方法：
@@ -326,7 +496,7 @@ pattern 和 tool 可访问的主要字段：
 - `async initialize() -> None`
 - `async validate() -> None`
 - `async health_check() -> bool`
-- `async run(...) -> Any`
+- `async run(...) -> RunResult`
 - `async pause() -> None`
 - `async resume() -> None`
 - `async close() -> None`
@@ -358,48 +528,17 @@ pattern 和 tool 可访问的主要字段：
 - `async clear_history() -> None`
 - `async close() -> None`
 
-## Capability 常量
+## 12. Registry helper
 
-常用 capability 常量位于 `openagents.interfaces.capabilities`：
+`get_*` helper 返回的是 decorator registry 里的类。  
+`list_*` helper 返回的是 decorator registry 里的名称。
 
-- `MEMORY_INJECT`
-- `MEMORY_WRITEBACK`
-- `MEMORY_RETRIEVE`
-- `PATTERN_EXECUTE`
-- `PATTERN_REACT`
-- `TOOL_INVOKE`
+它们不是 builtin registry 的完整替代品。
 
-runtime、session、events 相关 capability 常量分别位于它们自己的 interface module。
+## 13. 继续阅读
 
-## Event Names
-
-builtin runtime 相关事件名位于 `openagents.interfaces.events`：
-
-- `run.requested`
-- `run.validated`
-- `session.acquired`
-- `context.created`
-- `memory.injected`
-- `memory.inject_failed`
-- `memory.writeback_succeeded`
-- `memory.writeback_failed`
-- `run.completed`
-- `run.failed`
-- `runtime.shutdown_requested`
-- `runtime.shutdown_started`
-- `runtime.shutdown_completed`
-
-## 异常类型
-
-定义在 `openagents.errors.exceptions`：
-
-- `OpenAgentsError`
-- `ConfigError`
-- `PluginLoadError`
-- `CapabilityError`
-
-## 相关文档
-
+- [开发者指南](developer-guide.md)
+- [Seam 与扩展点](seams-and-extension-points.md)
 - [配置参考](configuration.md)
-- [开发指南](developer-guide.md)
 - [插件开发](plugin-development.md)
+- [示例说明](examples.md)

@@ -12,8 +12,9 @@ from .plugin import BasePlugin
 class ResponseRepairDecision:
     """Structured decision for repairing a bad or empty model response."""
 
-    handled: bool = False
+    status: str = "abstain"
     output: Any = None
+    reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

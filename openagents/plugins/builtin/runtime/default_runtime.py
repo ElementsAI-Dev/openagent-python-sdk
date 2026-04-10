@@ -31,7 +31,9 @@ from openagents.interfaces.events import (
     RUN_VALIDATED,
     SESSION_ACQUIRED,
 )
+from openagents.interfaces.followup import FollowupResolverPlugin
 from openagents.interfaces.pattern import PatternPlugin
+from openagents.interfaces.response_repair import ResponseRepairPolicyPlugin
 from openagents.interfaces.runtime import (
     RUN_STOP_COMPLETED,
     RUN_STOP_FAILED,
@@ -254,6 +256,8 @@ class DefaultRuntime(RuntimePlugin):
         self._tool_executor: ToolExecutor | None = None
         self._execution_policy: ExecutionPolicy | None = None
         self._context_assembler: ContextAssemblerPlugin | None = None
+        self._followup_resolver: FollowupResolverPlugin | None = None
+        self._response_repair_policy: ResponseRepairPolicyPlugin | None = None
 
     @property
     def event_bus(self) -> EventBusPlugin:
@@ -308,6 +312,8 @@ class DefaultRuntime(RuntimePlugin):
         execution_policy = self._resolve_execution_policy(agent_plugins)
         tool_executor = self._resolve_tool_executor(agent_plugins)
         context_assembler = self._resolve_context_assembler(agent_plugins)
+        followup_resolver = self._resolve_followup_resolver(agent_plugins)
+        response_repair_policy = self._resolve_response_repair_policy(agent_plugins)
 
         try:
             async with self._session_manager.session(request.session_id) as session_state:
@@ -339,8 +345,8 @@ class DefaultRuntime(RuntimePlugin):
                     assembly_metadata=assembly.metadata,
                     tool_executor=tool_executor,
                     execution_policy=execution_policy,
-                    followup_resolver=getattr(plugins, "followup_resolver", None),
-                    response_repair_policy=getattr(plugins, "response_repair_policy", None),
+                    followup_resolver=followup_resolver,
+                    response_repair_policy=response_repair_policy,
                     usage=usage,
                     artifacts=artifacts,
                 )
@@ -617,6 +623,46 @@ class DefaultRuntime(RuntimePlugin):
             self._bind_runtime_dependency(context_assembler)
             return context_assembler
         return self._get_context_assembler()
+
+    def _get_followup_resolver(self) -> FollowupResolverPlugin:
+        from openagents.plugins.builtin.followup.basic import BasicFollowupResolver
+
+        if self._followup_resolver is not None:
+            return self._followup_resolver
+        self._followup_resolver = self._load_runtime_dependency(
+            key="followup_resolver",
+            default_factory=BasicFollowupResolver,
+            builtin_factories={"basic": BasicFollowupResolver},
+            required_methods=("resolve",),
+        )
+        return self._followup_resolver
+
+    def _resolve_followup_resolver(self, agent_plugins: Any) -> FollowupResolverPlugin:
+        followup_resolver = getattr(agent_plugins, "followup_resolver", None)
+        if followup_resolver is not None:
+            self._bind_runtime_dependency(followup_resolver)
+            return followup_resolver
+        return self._get_followup_resolver()
+
+    def _get_response_repair_policy(self) -> ResponseRepairPolicyPlugin:
+        from openagents.plugins.builtin.response_repair.basic import BasicResponseRepairPolicy
+
+        if self._response_repair_policy is not None:
+            return self._response_repair_policy
+        self._response_repair_policy = self._load_runtime_dependency(
+            key="response_repair_policy",
+            default_factory=BasicResponseRepairPolicy,
+            builtin_factories={"basic": BasicResponseRepairPolicy},
+            required_methods=("repair_empty_response",),
+        )
+        return self._response_repair_policy
+
+    def _resolve_response_repair_policy(self, agent_plugins: Any) -> ResponseRepairPolicyPlugin:
+        response_repair_policy = getattr(agent_plugins, "response_repair_policy", None)
+        if response_repair_policy is not None:
+            self._bind_runtime_dependency(response_repair_policy)
+            return response_repair_policy
+        return self._get_response_repair_policy()
 
     def _load_runtime_dependency(
         self,

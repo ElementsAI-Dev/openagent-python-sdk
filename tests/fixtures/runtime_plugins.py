@@ -466,6 +466,16 @@ class ContextAwarePattern:
             "transcript_count": len(self.context.transcript),
             "artifact_names": [artifact.name for artifact in self.context.session_artifacts],
             "assembly_metadata": dict(self.context.assembly_metadata),
+            "followup_resolver": (
+                type(self.context.followup_resolver).__name__
+                if self.context.followup_resolver is not None
+                else None
+            ),
+            "response_repair_policy": (
+                type(self.context.response_repair_policy).__name__
+                if self.context.response_repair_policy is not None
+                else None
+            ),
             "state": {
                 "assembler_seen": self.context.state.get("assembler_seen"),
                 "assembler_finalized": self.context.state.get("assembler_finalized"),

@@ -21,6 +21,7 @@ from openagents.decorators import (
 from openagents.plugins.builtin.events.async_event_bus import AsyncEventBus
 from openagents.plugins.builtin.context.summarizing import SummarizingContextAssembler
 from openagents.plugins.builtin.execution_policy.filesystem import FilesystemExecutionPolicy
+from openagents.plugins.builtin.followup.basic import BasicFollowupResolver
 from openagents.plugins.builtin.memory.buffer import BufferMemory
 from openagents.plugins.builtin.memory.chain import ChainMemory
 from openagents.plugins.builtin.memory.mem0_memory import Mem0Memory
@@ -29,6 +30,7 @@ from openagents.plugins.builtin.pattern.plan_execute import PlanExecutePattern
 from openagents.plugins.builtin.pattern.react import ReActPattern
 from openagents.plugins.builtin.pattern.reflexion import ReflexionPattern
 from openagents.plugins.builtin.runtime.default_runtime import DefaultRuntime
+from openagents.plugins.builtin.response_repair.basic import BasicResponseRepairPolicy
 from openagents.plugins.builtin.session.in_memory import InMemorySessionManager
 from openagents.plugins.builtin.tool_executor.safe import SafeToolExecutor
 from openagents.plugins.builtin.tool.common import BuiltinSearchTool
@@ -117,8 +119,12 @@ _BUILTIN_REGISTRY: dict[str, dict[str, type[Any]]] = {
     "context_assembler": {
         "summarizing": SummarizingContextAssembler,
     },
-    "followup_resolver": {},
-    "response_repair_policy": {},
+    "followup_resolver": {
+        "basic": BasicFollowupResolver,
+    },
+    "response_repair_policy": {
+        "basic": BasicResponseRepairPolicy,
+    },
     "tool": {
         "builtin_search": BuiltinSearchTool,
         "mcp": McpTool,

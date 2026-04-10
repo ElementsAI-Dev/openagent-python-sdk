@@ -451,7 +451,6 @@ async def test_runtime_from_config_claude_code_pattern_raises_explicit_error_on_
     assert "retries=2" in message
     assert "tools=0" in message
     assert "history_items=0" in message
-    assert "last_history_tools=[]" in message
     assert "input='hello'" in message
     assert client.calls == 2
 

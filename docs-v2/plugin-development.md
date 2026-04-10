@@ -42,21 +42,88 @@
 
 常用 capability 常量在 `openagents.interfaces.capabilities`。
 
-## Agent 级执行 Seam
+## Agent 级执行与语义 Seam
 
-除了 `memory / pattern / tool / skill` 这些直接业务构件之外，当前 SDK 还有三类 agent 级执行 seam：
+除了 `memory / pattern / tool / skill` 这些直接业务构件之外，当前 SDK 还有五类 agent 级中间 seam：
 
 - `tool_executor`
 - `execution_policy`
 - `context_assembler`
+- `followup_resolver`
+- `response_repair_policy`
 
 它们控制的是执行策略，不是业务能力本身。
 
-当前这三类 seam 的约束是：
+当前这五类 seam 的约束是：
 
 - builtin 可以用 `type`
 - 自定义实现可以用 `impl`
-- 当前不提供 decorator registry，也没有对应的 `get_*` / `list_*` API
+- 现在也都支持通过 decorator registry 走 `type`
+
+其中：
+
+- `tool_executor / execution_policy / context_assembler`
+  现在已经是 first-class 扩展点
+- `followup_resolver / response_repair_policy`
+  有 builtin default，同时也可以自定义
+
+## 自定义 Follow-up Resolver
+
+最小契约：
+
+```python
+from openagents import followup_resolver
+from openagents.interfaces.followup import FollowupResolution
+
+
+@followup_resolver(name="coding_followup")
+class CodingFollowupResolver:
+    async def resolve(self, *, context):
+        if context.input_text.strip() == "你刚干了什么":
+            return FollowupResolution(
+                status="resolved",
+                output="我刚刚读取了 README.md 并把内容返回给你。",
+            )
+        return None
+```
+
+推荐状态：
+
+- `resolved`
+- `abstain`
+- `error`
+
+## 自定义 Response Repair Policy
+
+最小契约：
+
+```python
+from openagents import response_repair_policy
+from openagents.interfaces.response_repair import ResponseRepairDecision
+
+
+@response_repair_policy(name="empty_response_repair")
+class EmptyResponseRepair:
+    async def repair_empty_response(
+        self,
+        *,
+        context,
+        messages,
+        assistant_content,
+        stop_reason,
+        retries,
+    ):
+        return ResponseRepairDecision(
+            status="repaired",
+            output="模型这轮没有返回可见输出，但系统已完成空响应修复。",
+        )
+```
+
+推荐状态：
+
+- `repaired`
+- `abstain`
+- `error`
 
 ## 推荐写法
 

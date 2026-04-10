@@ -8,16 +8,17 @@
 
 1. [配置参考](configuration.md)
 2. [开发指南](developer-guide.md)
-3. [插件开发](plugin-development.md)
-4. [API 参考](api-reference.md)
-5. [示例说明](examples.md)
+3. [Seam 与扩展点](seams-and-extension-points.md)
+4. [插件开发](plugin-development.md)
+5. [API 参考](api-reference.md)
+6. [示例说明](examples.md)
 
 ## 心智模型
 
 一个 OpenAgents 应用有两层配置：
 
 - App 级：`runtime`、`session`、`events`
-- Agent 级：`memory`、`pattern`、`llm`、`skill`、`tools`、`tool_executor`、`execution_policy`、`context_assembler`、`runtime`
+- Agent 级：`memory`、`pattern`、`llm`、`skill`、`tools`、`tool_executor`、`execution_policy`、`context_assembler`、`followup_resolver`、`response_repair_policy`、`runtime`
 
 一次 `run` 的主流程是：
 
@@ -37,9 +38,11 @@
 - [配置参考](configuration.md)
   - JSON 结构、默认值、校验规则、builtin selector 和完整示例
 - [开发指南](developer-guide.md)
-  - runtime 执行流、hot reload、session 隔离、本地开发和排障
+  - SDK 定位、为什么值得用、运行模型、高阶 Python API、开发流程
+- [Seam 与扩展点](seams-and-extension-points.md)
+  - 遇到某类问题时该改哪一层，哪些 seam 已经是一等公民
 - [插件开发](plugin-development.md)
-  - plugin loader 行为、capabilities 要求、自定义 Tool / Memory / Pattern / Runtime / Session / Event Bus 的写法
+  - plugin loader 行为、capabilities 要求、自定义 Tool / Memory / Pattern / Runtime / Session / Event Bus / 语义 seam 的写法
 - [API 参考](api-reference.md)
   - 对外导出、类与 helper 签名、接口契约、事件名、异常类型
 - [示例说明](examples.md)

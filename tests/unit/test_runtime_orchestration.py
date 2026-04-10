@@ -350,6 +350,44 @@ async def test_runtime_uses_builtin_summarizing_context_assembler():
 
 
 @pytest.mark.asyncio
+async def test_runtime_uses_basic_followup_and_response_repair_defaults():
+    payload = _payload(
+        "tests.fixtures.runtime_plugins.InjectWritebackMemory",
+        "tests.fixtures.runtime_plugins.ContextAwarePattern",
+    )
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+
+    result = await runtime.run(
+        agent_id="assistant",
+        session_id="default-seams-session",
+        input_text="hello",
+    )
+
+    assert result["followup_resolver"] == "BasicFollowupResolver"
+    assert result["response_repair_policy"] == "BasicResponseRepairPolicy"
+
+
+@pytest.mark.asyncio
+async def test_runtime_uses_builtin_followup_and_response_repair_defaults():
+    payload = _payload(
+        "tests.fixtures.runtime_plugins.InjectWritebackMemory",
+        "tests.fixtures.runtime_plugins.ContextAwarePattern",
+    )
+    config = load_config_dict(payload)
+    runtime = Runtime(config)
+
+    result = await runtime.run(
+        agent_id="assistant",
+        session_id="default-seams-session",
+        input_text="hello",
+    )
+
+    assert result["followup_resolver"] == "BasicFollowupResolver"
+    assert result["response_repair_policy"] == "BasicResponseRepairPolicy"
+
+
+@pytest.mark.asyncio
 async def test_runtime_uses_configured_tool_executor():
     payload = _payload(
         "tests.fixtures.runtime_plugins.InjectWritebackMemory",

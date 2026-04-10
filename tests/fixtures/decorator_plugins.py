@@ -108,7 +108,7 @@ class DecoratorFollowupResolver:
 
     async def resolve(self, *, context: Any) -> FollowupResolution | None:
         if str(context.input_text).strip() == "what did you do":
-            return FollowupResolution(resolved=True, output="decorated followup")
+            return FollowupResolution(status="resolved", output="decorated followup")
         return None
 
 
@@ -129,7 +129,7 @@ class DecoratorResponseRepairPolicy:
         retries: int,
     ) -> ResponseRepairDecision | None:
         _ = (context, messages, assistant_content, stop_reason, retries)
-        return ResponseRepairDecision(handled=True, output="decorated repair")
+        return ResponseRepairDecision(status="repaired", output="decorated repair")
 
 
 @tool_executor(name="decorated_tool_executor")

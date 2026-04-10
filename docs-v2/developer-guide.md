@@ -1,218 +1,368 @@
-# 开发指南
+# 开发者指南
 
-这份文档关注运行时行为、仓库本地开发方式，以及 builtin 实现当前做了什么、没做什么。
+这份文档不是“怎么跑一个 demo”，而是面向真正要基于 `openagent-py-sdk` 开发 agent、runtime 或上层产品的人。
 
-## 执行流程
+它重点回答：
 
-一次 `Runtime.run()` 的主流程如下：
+- 这套 SDK 的定位到底是什么
+- 它为什么值得用
+- 它的边界在哪里
+- 如何用它做高设计密度 agent
+- 遇到复杂问题时，应该改哪一层
 
-1. 根据 `agent_id` 找到目标 agent。
-2. 在当前 `session_id` 下解析或复用该 agent 的插件实例。
-3. 把执行委托给配置好的 runtime plugin。
-4. 通过 session manager 获取并锁定 session state。
-5. 构建 `ExecutionContext`，挂上 tools、LLM client 和 event bus。
-6. 调用 memory `inject()`。
-7. 调用 pattern `execute()`。
-8. 调用 memory `writeback()`。
-9. 把输出写入 session state，并发出生命周期事件。
+## 一句话定位
 
-builtin runtime 实现在 `openagents/plugins/builtin/runtime/default_runtime.py`。
+`openagent-py-sdk` 是一个：
 
-## Session 隔离
+- 单 agent
+- 配置驱动
+- 插件化
+- 异步优先
+- runtime-first
 
-session 隔离由两层共同保证：
+的执行内核。
 
-- `Runtime` 维护按 `session_id` 和 `agent_id` 分组的插件缓存
-- `InMemorySessionManager` 为每个 `session_id` 使用一个 async lock
+它不是现成的多 agent 产品，也不是完整的 Claude Code 替代品。  
+它更像“可进化的单 agent kernel”，适合被更高层的 CLI、framework、control plane、research app 包起来。
 
-这意味着：
+## 为什么值得用
 
-- 同一 session：串行执行
-- 不同 session：可以并发执行
-- memory 实例：按 session 隔离
-- tool 实例：按 session 隔离
+如果你要做的只是一个能回话的小 demo agent，这套 SDK 甚至可能显得有点重。
 
-## Hot Reload
+但如果你要做的是：
 
-`Runtime.reload()` 会重新从磁盘加载最初使用的配置文件，并把变更应用到未来请求。
+- coding agent
+- research agent
+- 长会话 agent
+- 带权限控制和工具策略的 agent
+- 上层 framework / control plane
 
-它会更新：
+那么它的优点就很明显了。
 
-- 发生变化的 agent 定义
-- 被移除 agent 的插件缓存
-- 发生变化 agent 的 runtime 级 LLM client cache
+### 1. 内核协议是显式的
 
-它不会热切换：
+核心运行对象不是 ad-hoc dict，而是有清晰边界的结构化协议：
 
-- 顶层 `runtime`
-- 顶层 `session`
-- 顶层 `events`
+- `RunRequest`
+- `RunResult`
+- `ToolExecutionRequest`
+- `ToolExecutionResult`
+- `ContextAssemblyResult`
 
-这些顶层组件一旦变化，`Runtime.reload()` 会抛出 `ConfigError`。
+这让 runtime、pattern、tool、session 之间的边界稳定，不会因为业务需求增长就开始互相污染。
 
-`Runtime.reload_agent(agent_id)` 更窄，只会清理该 agent 在各个 session 下的插件缓存，不会替换全局组件。
+### 2. 中间层不是被 prompt 吞掉的
 
-## Builtin Runtime 行为
+这套 SDK 的核心价值不是“支持 tool / memory / pattern”，而是承认 agent 的复杂度很多时候在 **middle protocols**：
 
-`DefaultRuntime` 负责：
+- tool 怎么执行
+- tool 能不能执行
+- transcript 怎么进上下文
+- follow-up 怎么解释
+- provider 坏响应怎么修
 
-- 为每个 agent 创建或复用 LLM client
-- 发出 run 生命周期事件
-- 按策略处理 memory inject / writeback
-- 依赖 session manager 提供锁和 state
+如果没有这些 seam，所有复杂度最终都会回流到 pattern。
 
-builtin memory 错误策略由 `memory.on_error` 决定：
+### 3. 适合开发者自己设计产品语义
 
-- `continue`：发失败事件，但继续执行
-- `fail`：直接向上抛错并终止本轮 run
+SDK 不试图把所有产品层问题都预设好，而是提供 kernel + seam，让开发者自己设计：
 
-## Builtin Pattern 说明
+- coding 风格的 follow-up
+- action summary
+- team / subagent orchestration
+- provider-specific repair policy
+- 长会话上下文装配策略
 
-### `react`
+这对做高设计密度 agent 是好事，因为真正复杂的语义通常不该硬编码进 SDK core。
 
-`ReActPattern` 当前有两种模式。
+## 三层心智模型
 
-有 LLM 时：
+理解这套 SDK 最容易的方式，是先把它分成三层：
 
-- 给模型发送严格的 JSON-only prompt
-- 只接受 `final`、`continue`、`tool_call` 三种 action
-- 对 `tool_call` 会暂存 pending tool id，下一步把结果格式化成 `Tool[tool_id] => ...`
+### 1. SDK Core
 
-没有 LLM 时：
+固定协议，不轻易变化。
 
-- `/tool <tool_id> <query>` 会触发一次 tool call，参数形如 `{"query": "..."}`
-- 其他输入会走 echo fallback，并带上 conversation history
+包括：
 
-### `plan_execute`
+- `Runtime`
+- `SessionManager`
+- `EventBus`
+- `RunRequest / RunResult`
+- `ExecutionContext`
+- `ToolExecutionRequest / Result`
 
-- 先用 LLM 生成 plan
-- 把 plan 放在 `context.scratch["_plan"]`
-- 然后按步骤执行
-- 没有 LLM 时基本没有实际价值
+### 2. SDK Seams
 
-### `reflexion`
+在固定协议上开放出来的策略扩展点。
 
-- 会根据最近的 tool results 做反思
-- 可以产出带调整参数的 retry
-- 到达 `max_retries` 或 `max_steps` 后停止
+包括：
 
-## Builtin Memory 说明
+- `memory`
+- `pattern`
+- `skill`
+- `tool_executor`
+- `execution_policy`
+- `context_assembler`
+- `followup_resolver`
+- `response_repair_policy`
 
-### `buffer`
+### 3. App / Product Layer
 
-- 把交互历史保存在 session state 里
-- 默认 state key：`memory_buffer`
-- 默认 memory view key：`history`
-- 写回字段包括 `input`、`tool_results`，以及可选的 `output`
+开发者自己定义的业务和产品语义。
 
-### `window_buffer`
+包括：
 
-- 基于 `buffer` 实现
-- 会把 `window_size` 转成 `max_items`
-- 注入到 `memory_view` 的始终是最近一段窗口数据
+- coding agent 行为
+- follow-up 语义风格
+- permission UX
+- subagent / team
+- mailbox / background task
+- app-specific context engineering
 
-### `mem0`
+关键原则是：
 
-- 需要额外安装 `mem0` 依赖
-- 不单独配置 memory 专用 API key，而是复用 agent 的 LLM 配置
-- 会把命中的语义记忆写入 `memory_view["mem0_history"]` 和 `memory_view["history"]`
+**固定 core 协议，开放 seam，保留产品语义自由。**
 
-### `chain`
+## 配置层级
 
-- 通过 `config.memories` 组合多个 memory refs
-- 适合把短期 buffer 和记忆 backend 组合使用
+### App 级
 
-## Events
+在顶层：
 
-builtin event bus 会把事件历史保存在内存中，并支持 `*` wildcard subscriber。
+- `runtime`
+- `session`
+- `events`
 
-runtime 发出的生命周期事件包括：
+它们决定整个应用如何运行。
 
-- `run.requested`
-- `run.validated`
-- `session.acquired`
-- `context.created`
-- `memory.injected`
-- `memory.inject_failed`
-- `memory.writeback_succeeded`
-- `memory.writeback_failed`
-- `run.completed`
-- `run.failed`
+### Agent 级
 
-pattern 侧常见事件包括：
+在 `agents[*]` 里：
 
-- `pattern.step_started`
-- `pattern.step_finished`
-- `tool.called`
-- `tool.succeeded`
-- `tool.failed`
-- `llm.called`
-- `llm.succeeded`
+- `memory`
+- `pattern`
+- `llm`
+- `skill`
+- `tools`
+- `tool_executor`
+- `execution_policy`
+- `context_assembler`
+- `followup_resolver`
+- `response_repair_policy`
+- `runtime`
 
-## 本地开发
+要特别注意：
 
-安装开发依赖：
+- 顶层 `runtime` 是 `RuntimeRef`
+- agent 内 `runtime` 是 `RuntimeOptions`
 
-```bash
-uv sync --extra dev
+前者是“选哪个 runtime plugin”，后者是“这次 agent 运行的预算参数”。
+
+## 一次 Runtime.run 的执行链
+
+最重要的主链是：
+
+1. `Runtime.run()` 把简单输入包装成 `RunRequest`
+2. `Runtime.run_detailed()` 找到目标 `AgentDefinition`
+3. 通过 `load_agent_plugins()` 为 `(session_id, agent_id)` 解析或复用插件实例
+4. 进入 `DefaultRuntime.run()`
+5. 获取 session lock
+6. `context_assembler.assemble()` 组装 transcript / artifacts
+7. 绑定 tools、executor、policy
+8. `pattern.setup(...)`
+9. `memory.inject(...)`
+10. skill hooks
+11. `pattern.execute()`
+12. `memory.writeback(...)`
+13. append transcript
+14. persist artifacts
+15. 返回 `RunResult`
+
+这条链说明了一个很重要的事实：
+
+**pattern 不是整个世界，runtime 才是总协调者。**
+
+## 什么时候改哪一层
+
+### 改 Pattern
+
+当你要改变的是：
+
+- agent loop
+- reasoning / acting 结构
+- tool-use 回合编排
+- LLM 交互格式
+
+### 改 Memory
+
+当你要改变的是：
+
+- 历史如何注入
+- 历史写回什么
+- memory view 如何裁剪和投影
+
+### 改 Tool Executor
+
+当你要改变的是：
+
+- tool timeout / retry / streaming
+- tool result 规范化
+- tool 执行包装
+
+### 改 Execution Policy
+
+当你要改变的是：
+
+- allow / deny
+- path whitelist
+- 需要审批还是可直接执行
+
+### 改 Context Assembler
+
+当你要改变的是：
+
+- transcript 裁剪
+- artifact 选择
+- session 上下文装配
+
+### 改 Followup Resolver
+
+当你要改变的是：
+
+- “你刚干了什么”
+- “刚才读到了什么”
+- “上一轮为什么这么做”
+
+这类多轮追问语义。
+
+### 改 Response Repair Policy
+
+当你要改变的是：
+
+- empty response
+- provider 空 turn
+- 伪 tool-call
+- tool-result 后模型不继续回答
+- 坏格式修复
+
+## 高阶 Python API
+
+如果你不想所有接入都从 JSON 文件出发，现在有几条更友好的入口。
+
+### 1. 从 dict 直接构造 Runtime
+
+```python
+from openagents import Runtime
+
+runtime = Runtime.from_dict(payload)
 ```
 
-运行测试：
+适合：
 
-```bash
-uv run pytest -q
+- 测试
+- notebook / research
+- 上层框架动态生成 config
+
+### 2. 直接从 dict 同步运行
+
+```python
+from openagents.runtime.sync import run_agent_with_dict
+
+result = run_agent_with_dict(
+    payload,
+    agent_id="assistant",
+    session_id="demo",
+    input_text="hello",
+)
 ```
 
-运行 quickstart：
+### 3. 拿结构化结果而不是只拿 output
 
-```bash
-uv run python examples/quickstart/run_demo.py
+```python
+from openagents.runtime.sync import run_agent_detailed
+
+result = run_agent_detailed(
+    "agent.json",
+    agent_id="assistant",
+    session_id="demo",
+    input_text="hello",
+)
+
+print(result.final_output)
+print(result.stop_reason)
+print(result.usage)
 ```
 
-运行真实 provider 示例：
+### 4. 直接从已加载 config 运行
 
-```bash
-uv run python examples/openai_compatible/run_demo.py
-uv run python examples/longcat/run_demo.py
+```python
+from openagents import load_config_dict
+from openagents.runtime.sync import run_agent_detailed_with_config
+
+config = load_config_dict(payload)
+result = run_agent_detailed_with_config(
+    config,
+    agent_id="assistant",
+    session_id="demo",
+    input_text="hello",
+)
 ```
 
-## 常见问题
+## 现在已经是一等公民的扩展点
 
-### `Unknown agent id`
+支持 decorator / registry / `type` 的有：
 
-传给 `Runtime.run()` 的 `agent_id` 跟配置里的 `agents[].id` 不一致。
+- `tool`
+- `memory`
+- `pattern`
+- `runtime`
+- `skill`
+- `session`
+- `event_bus`
+- `tool_executor`
+- `execution_policy`
+- `context_assembler`
+- `followup_resolver`
+- `response_repair_policy`
 
-### `llm.api_base is required for provider 'openai_compatible'`
+也就是说，核心 agent middle seams 现在都已经是一等公民扩展点了。
 
-`openai_compatible` 在运行前就会被校验，必须在 JSON 里配置 `llm.api_base`。
+推荐选择方式：
 
-### mock 能跑，但去掉 `llm` 后 pattern 不工作
+- 本仓库内、本应用内开发：优先 decorator + `type`
+- 跨包 / 发布后复用：优先 `impl`
 
-不是所有 pattern 都能在没有 LLM 的情况下正常工作：
+## 适合什么，不适合什么
 
-- `react`：可以，有 non-LLM fallback
-- `plan_execute`：基本不行
-- `reflexion`：没有 LLM 时只会返回 `continue`，不会产生有效结果
+### 适合
 
-### MCP tool 导入失败
+- 你是 agent runtime / infra / platform 开发者
+- 你希望保留中间层控制权
+- 你要做 coding agent、research agent、framework kernel
+- 你想把复杂度拆开，而不是糊在一个 Agent 类里
 
-安装 MCP extra：
+### 不适合
 
-```bash
-uv add "openagents-sdk[mcp]"
-```
+- 你想零配置快速做一个复杂产品级 agent
+- 你要现成 multi-agent orchestration
+- 你不打算读 runtime / loader / interfaces 源码
 
-### Mem0 memory 一直是空
+## 最重要的建议
 
-安装 Mem0 extra，并保证 agent 的 LLM 凭据可用：
+以后如果你继续扩这套 SDK，最重要的是不要让所有复杂逻辑重新回流到 `Pattern.execute()`。
 
-```bash
-uv add "openagents-sdk[mem0]"
-```
+一旦：
 
-## 延伸阅读
+- follow-up
+- provider repair
+- context packing
+- tool execution quirks
 
-- [配置参考](configuration.md)
-- [插件开发](plugin-development.md)
-- [API 参考](api-reference.md)
-- [示例说明](examples.md)
+又都堆回 pattern，这套 SDK 最有价值的地方就会被抵消。
+
+最健康的演进方式是：
+
+- core 协议稳定
+- seam 逐步补齐
+- 产品语义保持在 app 层

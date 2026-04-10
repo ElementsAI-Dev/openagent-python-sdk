@@ -185,7 +185,7 @@ class CustomFollowupResolver:
     async def resolve(self, context: Any) -> Any:
         target = str(self.config.get("when_input", ""))
         if target and str(context.input_text).strip() == target:
-            return FollowupResolution(resolved=True, output=self.config.get("result", "resolved"))
+            return FollowupResolution(status="resolved", output=self.config.get("result", "resolved"))
         return None
 
 
@@ -203,7 +203,7 @@ class CustomResponseRepairPolicy:
         retries: int,
     ) -> Any:
         _ = (context, messages, assistant_content, stop_reason, retries)
-        return ResponseRepairDecision(handled=True, output=self.config.get("result", "repaired"))
+        return ResponseRepairDecision(status="repaired", output=self.config.get("result", "repaired"))
 
 
 class BadSkillMissingContextAugmentMethod:

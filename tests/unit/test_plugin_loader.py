@@ -27,6 +27,8 @@ def test_load_agent_plugins_builtin_types():
     payload["agents"][0]["tool_executor"] = {"type": "safe"}
     payload["agents"][0]["execution_policy"] = {"type": "filesystem"}
     payload["agents"][0]["context_assembler"] = {"type": "summarizing"}
+    payload["agents"][0]["followup_resolver"] = {"type": "basic"}
+    payload["agents"][0]["response_repair_policy"] = {"type": "basic"}
     config = load_config_dict(payload)
     plugins = load_agent_plugins(config.agents[0])
 
@@ -36,6 +38,8 @@ def test_load_agent_plugins_builtin_types():
     assert type(plugins.tool_executor).__name__ == "SafeToolExecutor"
     assert type(plugins.execution_policy).__name__ == "FilesystemExecutionPolicy"
     assert type(plugins.context_assembler).__name__ == "SummarizingContextAssembler"
+    assert type(plugins.followup_resolver).__name__ == "BasicFollowupResolver"
+    assert type(plugins.response_repair_policy).__name__ == "BasicResponseRepairPolicy"
     assert "search" in plugins.tools
     assert "skill_calc" in plugins.tools
     assert type(plugins.tools["search"]).__name__ == "BuiltinSearchTool"

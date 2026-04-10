@@ -12,8 +12,9 @@ from .plugin import BasePlugin
 class FollowupResolution:
     """Structured result for resolving a follow-up question locally."""
 
-    resolved: bool = False
+    status: str = "abstain"
     output: Any = None
+    reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

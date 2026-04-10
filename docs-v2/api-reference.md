@@ -9,10 +9,7 @@ from openagents import (
     AppConfig,
     Runtime,
     load_config,
-    load_config_dict,
     run_agent,
-    run_agent_detailed,
-    run_agent_detailed_with_config,
     run_agent_with_config,
     tool,
     memory,
@@ -21,11 +18,6 @@ from openagents import (
     skill,
     session,
     event_bus,
-    tool_executor,
-    execution_policy,
-    context_assembler,
-    followup_resolver,
-    response_repair_policy,
     get_tool,
     get_memory,
     get_pattern,
@@ -33,11 +25,6 @@ from openagents import (
     get_skill,
     get_session,
     get_event_bus,
-    get_tool_executor,
-    get_execution_policy,
-    get_context_assembler,
-    get_followup_resolver,
-    get_response_repair_policy,
     list_tools,
     list_memories,
     list_patterns,
@@ -45,11 +32,6 @@ from openagents import (
     list_skills,
     list_sessions,
     list_event_buses,
-    list_tool_executors,
-    list_execution_policies,
-    list_context_assemblers,
-    list_followup_resolvers,
-    list_response_repair_policies,
 )
 ```
 
@@ -62,10 +44,6 @@ from openagents import (
 ### `Runtime.from_config(config_path: str | Path) -> Runtime`
 
 从磁盘读取 JSON，完成校验，然后构造 runtime。
-
-### `Runtime.from_dict(payload: dict[str, Any]) -> Runtime`
-
-直接从 Python dict 构造 runtime。
 
 ### `await runtime.run(*, agent_id: str, session_id: str, input_text: str) -> Any`
 
@@ -165,8 +143,6 @@ from openagents import (
 - `tool_executor: ToolExecutorRef | None`
 - `execution_policy: ExecutionPolicyRef | None`
 - `context_assembler: ContextAssemblerRef | None`
-- `followup_resolver: FollowupResolverRef | None`
-- `response_repair_policy: ResponseRepairPolicyRef | None`
 - `tools: list[ToolRef]`
 - `runtime: RuntimeOptions`
 
@@ -202,18 +178,6 @@ provider 配置：
 
 从已加载的 config 对象构造 runtime，然后立即调用 `run_sync()`。
 
-### `run_agent_with_dict(payload, *, agent_id, session_id="default", input_text) -> Any`
-
-从 Python dict 直接构造 runtime，然后同步执行。
-
-### `run_agent_detailed(config_path, *, agent_id, session_id="default", input_text) -> RunResult`
-
-同步执行，但返回完整 `RunResult`。
-
-### `run_agent_detailed_with_config(config, *, agent_id, session_id="default", input_text) -> RunResult`
-
-从预加载 config 同步执行，并返回完整 `RunResult`。
-
 ## Decorators
 
 ### `@tool(name: str | None = None, description: str = "")`
@@ -240,26 +204,6 @@ provider 配置：
 
 注册 event bus class。
 
-### `@tool_executor(name: str | None = None)`
-
-注册 tool executor class。
-
-### `@execution_policy(name: str | None = None)`
-
-注册 execution policy class。
-
-### `@context_assembler(name: str | None = None)`
-
-注册 context assembler class。
-
-### `@followup_resolver(name: str | None = None)`
-
-注册 follow-up resolver class。
-
-### `@response_repair_policy(name: str | None = None)`
-
-注册 response repair policy class。
-
 ## Registry Helpers
 
 查询 helper：
@@ -270,11 +214,6 @@ provider 配置：
 - `get_runtime(name)`
 - `get_session(name)`
 - `get_event_bus(name)`
-- `get_tool_executor(name)`
-- `get_execution_policy(name)`
-- `get_context_assembler(name)`
-- `get_followup_resolver(name)`
-- `get_response_repair_policy(name)`
 
 列表 helper：
 
@@ -284,11 +223,6 @@ provider 配置：
 - `list_runtimes()`
 - `list_sessions()`
 - `list_event_buses()`
-- `list_tool_executors()`
-- `list_execution_policies()`
-- `list_context_assemblers()`
-- `list_followup_resolvers()`
-- `list_response_repair_policies()`
 
 注意：这些 helper 面向 decorator registry，不等于完整 builtin registry。
 

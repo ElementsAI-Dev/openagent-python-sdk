@@ -133,8 +133,6 @@ agent 内的 `memory`、`pattern`、`tools[]` 至少要提供一个 `type` 或 `
 | `tool_executor` | object | 否 | agent 级 tool execution seam selector |
 | `execution_policy` | object | 否 | agent 级 execution policy seam selector |
 | `context_assembler` | object | 否 | agent 级 context assembly seam selector |
-| `followup_resolver` | object | 否 | 多轮追问语义 seam selector |
-| `response_repair_policy` | object | 否 | 坏响应修复 seam selector |
 | `tools` | array | 否 | Tool selectors，禁用项不会被加载 |
 | `runtime` | object | 否 | agent 级 runtime 参数，不是 plugin selector |
 
@@ -362,50 +360,6 @@ factory 使用的默认值：
 当前 builtin：
 
 - `summarizing`
-
-### `followup_resolver`
-
-```json
-{
-  "followup_resolver": {
-    "type": "basic"
-  }
-}
-```
-
-用途：
-
-- 处理“你刚干了什么”“上一轮做了什么”这类多轮追问
-- 优先从本地 runtime state / memory 给出稳定回答
-
-当前 builtin：
-
-- `basic`
-
-### `response_repair_policy`
-
-```json
-{
-  "response_repair_policy": {
-    "type": "basic"
-  }
-}
-```
-
-用途：
-
-- 处理 empty response
-- 处理 provider 空 turn / 坏响应
-- 在最终抛错前给出结构化诊断
-
-当前 builtin：
-
-- `basic`
-
-默认行为：
-
-- 如果 agent 不显式配置 `followup_resolver`，runtime 会挂载 `basic`
-- 如果 agent 不显式配置 `response_repair_policy`，runtime 也会挂载 `basic`
 
 ### 兼容说明
 

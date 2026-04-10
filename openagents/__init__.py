@@ -77,6 +77,7 @@ from .runtime.sync import (
     run_agent_detailed,
     run_agent_detailed_with_config,
     run_agent_with_config,
+    run_agent_with_dict,
 )
 
 __all__ = [
@@ -89,6 +90,7 @@ __all__ = [
     "run_agent_detailed",
     "run_agent_detailed_with_config",
     "run_agent_with_config",
+    "run_agent_with_dict",
     # Decorators
     "tool",
     "memory",

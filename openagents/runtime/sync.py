@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
+from openagents.interfaces.runtime import RunRequest, RunResult
 from openagents.runtime.runtime import Runtime
 
 
@@ -55,4 +57,56 @@ def run_agent_with_config(
         Agent execution result
     """
     runtime = Runtime(config, _skip_plugin_load=False)
+    return runtime.run_sync(agent_id=agent_id, session_id=session_id, input_text=input_text)
+
+
+def run_agent_detailed(
+    config_path: str | Path,
+    *,
+    agent_id: str,
+    session_id: str = "default",
+    input_text: str,
+) -> RunResult:
+    """Synchronous agent execution that returns the full RunResult."""
+    runtime = Runtime.from_config(config_path)
+    return asyncio.run(
+        runtime.run_detailed(
+            request=RunRequest(
+                agent_id=agent_id,
+                session_id=session_id,
+                input_text=input_text,
+            )
+        )
+    )
+
+
+def run_agent_detailed_with_config(
+    config: Any,
+    *,
+    agent_id: str,
+    session_id: str = "default",
+    input_text: str,
+) -> RunResult:
+    """Synchronous detailed run with a pre-loaded AppConfig."""
+    runtime = Runtime(config, _skip_plugin_load=False)
+    return asyncio.run(
+        runtime.run_detailed(
+            request=RunRequest(
+                agent_id=agent_id,
+                session_id=session_id,
+                input_text=input_text,
+            )
+        )
+    )
+
+
+def run_agent_with_dict(
+    payload: dict[str, Any],
+    *,
+    agent_id: str,
+    session_id: str = "default",
+    input_text: str,
+) -> Any:
+    """Synchronous agent execution directly from a Python config dict."""
+    runtime = Runtime.from_dict(payload)
     return runtime.run_sync(agent_id=agent_id, session_id=session_id, input_text=input_text)

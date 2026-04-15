@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from openagents.errors.exceptions import OpenAgentsError
+
 from .plugin import BasePlugin
 
 
@@ -69,7 +71,7 @@ class RunResult:
     usage: RunUsage = field(default_factory=RunUsage)
     artifacts: list[RunArtifact] = field(default_factory=list)
     error: str | None = None
-    exception: Exception | None = None
+    exception: OpenAgentsError | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

@@ -5,36 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
+from openagents.errors.exceptions import (
+    PermanentToolError,
+    RetryableToolError,
+    ToolError,
+    ToolNotFoundError,
+    ToolTimeoutError,
+)
+
 from .plugin import BasePlugin
-
-
-# Tool Error Types
-class ToolError(Exception):
-    """Base exception for tool errors."""
-
-    tool_name: str = ""
-
-    def __init__(self, message: str, tool_name: str = ""):
-        super().__init__(message)
-        self.tool_name = tool_name
-
-
-class RetryableToolError(ToolError):
-    """Tool error that can be retried.
-
-    Examples: timeout, rate limit, temporary unavailability
-    """
-
-    pass
-
-
-class PermanentToolError(ToolError):
-    """Tool error that should not be retried.
-
-    Examples: invalid parameters, permission denied, resource not found
-    """
-
-    pass
 
 
 @dataclass

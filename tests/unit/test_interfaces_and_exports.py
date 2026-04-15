@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tomllib
+
 import openagents
 import openagents.config as config_module
 import openagents.plugins as plugins_module
@@ -112,6 +115,8 @@ async def test_exports_registry_and_capability_helpers_cover_public_surface():
     assert normalize_capabilities([PATTERN_EXECUTE, " ", 123, TOOL_INVOKE]) == {PATTERN_EXECUTE, TOOL_INVOKE}
     assert supports(plugin, TOOL_INVOKE) is True
     assert StopReason.COMPLETED.value == "completed"
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["project"]["version"] == "0.2.0"
 
 
 @pytest.mark.asyncio

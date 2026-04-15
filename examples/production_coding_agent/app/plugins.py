@@ -418,7 +418,12 @@ class ProductionCodingPattern(PatternPlugin):
         search_tool_id = "ripgrep" if "ripgrep" in ctx.tools else "grep_files"
         matches: list[dict[str, Any]] = []
         for pattern in plan.search_patterns[:3]:
-            result = await self.call_tool(search_tool_id, {"path": workspace_root, "pattern": pattern, "case_sensitive": False})
+            try:
+                result = await self.call_tool(search_tool_id, {"path": workspace_root, "pattern": pattern, "case_sensitive": False})
+            except Exception:
+                if search_tool_id != "ripgrep" or "grep_files" not in ctx.tools:
+                    raise
+                result = await self.call_tool("grep_files", {"path": workspace_root, "pattern": pattern, "case_sensitive": False})
             matches.extend(list(result.get("matches", []))[:8])
         read_candidates: list[str] = [str((Path(workspace_root) / path).resolve(strict=False)) for path in plan.target_files]
         for item in matches:

@@ -64,7 +64,7 @@ class ToolExecutionRequest(BaseModel):
     tool_id: str
     tool: Any
     params: dict[str, Any] = Field(default_factory=dict)
-    context: "RunContext[Any] | None" = None
+    context: Any = None
     execution_spec: ToolExecutionSpec = Field(default_factory=ToolExecutionSpec)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -211,6 +211,4 @@ class ToolPlugin(BasePlugin):
 
 
 if not TYPE_CHECKING:
-    from .run_context import RunContext
-
     ToolExecutionRequest.model_rebuild()

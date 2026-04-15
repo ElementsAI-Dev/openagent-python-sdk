@@ -1,6 +1,6 @@
 # OpenAgent Agent Builder
 
-`openagent skill` 的 v0 定位不是 team runner，而是一个 `agent builder + smoke runner`。
+`openagent-agent-builder` 现在通过顶层 `skills` 组件发现和执行，不是 runtime 内的 seam。
 
 它的目标是帮助主 agent 或开发者快速得到：
 
@@ -83,6 +83,6 @@ v0 支持四个 archetype：
 - `skills/openagent-agent-builder/src/openagent_agent_builder/`
   - 可执行 core
 - `openagent_agent_builder.entrypoint.run_openagent_skill`
-  - 给 skill host 或 app-owned main agent 调用
+  - 给顶层 `skills` 组件或 app-owned main agent 调用
 
-两边都应该通过 skill import / skill execution 去使用它，而不是回到 `openagents/` SDK 包里找 builder 实现。
+session 开始时，`skills.prepare_session()` 只预热 description；references 和 entrypoint 在需要时再渐进式加载。

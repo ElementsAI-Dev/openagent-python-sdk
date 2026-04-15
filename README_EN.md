@@ -52,7 +52,7 @@ That separation gives you:
 ## What It Is
 
 - a **single-agent runtime kernel**
-- a **plugin-based execution model** for memory, pattern, skill, tool, session, runtime, and events
+- a **plugin-based execution model** for memory, pattern, tool, session, runtime, events, and top-level skills
 - a **middle-protocol host** for execution policy, tool execution, context assembly, follow-up resolution, and response repair
 - a **structured runtime contract** built around `RunRequest`, `RunResult`, `RunUsage`, `RunArtifact`, and `ExecutionContext`
 
@@ -96,7 +96,6 @@ behavior changes:
 - capability seams:
   - `memory`
   - `pattern`
-  - `skill`
   - `tool`
 - execution seams:
   - `tool_executor`
@@ -109,6 +108,7 @@ behavior changes:
   - `runtime`
   - `session`
   - `events`
+  - `skills`
 
 ### 3. App-Defined Middle Protocols
 
@@ -130,7 +130,6 @@ OpenAgents does not try to predefine all of these. Instead, it gives you carrier
 - `ExecutionContext.state`
 - `ExecutionContext.scratch`
 - `ExecutionContext.assembly_metadata`
-- `ExecutionContext.skill_metadata`
 - `RunArtifact.metadata`
 
 ## Runtime Architecture
@@ -144,7 +143,6 @@ Caller
       -> Session manager + Event bus
       -> Context assembler
       -> Pattern setup
-      -> Skill hooks
       -> Memory inject / writeback
       -> Bound tools (policy + executor)
       -> LLM provider
@@ -326,6 +324,7 @@ That is intentional. The current rule is:
 
 - keep kernel protocols fixed
 - expose a small number of high-value runtime seams
+- expose a top-level `skills` component for host-style skill packages
 - let developers invent application protocols themselves
 
 If your problem is:
@@ -345,41 +344,28 @@ If your problem is:
 
 ## Examples
 
-Real examples in this repo cover several extension styles:
+This repo currently ships two maintained examples:
 
 - [examples/quickstart](examples/quickstart)
-  - builtin-only setup
-- [examples/custom_impl](examples/custom_impl)
-  - custom `impl`-based plugins
-- [examples/runtime_composition](examples/runtime_composition)
-  - runtime seam composition
-- [examples/skill_hooks_demo](examples/skill_hooks_demo)
-  - full skill lifecycle
+  - builtin-only setup for first contact with the kernel
 - [examples/production_coding_agent](examples/production_coding_agent)
-  - production-style coding agent with task packets, persistent memory, follow-up recovery, and delivery artifacts
-- [examples/multi_step_research](examples/multi_step_research)
-  - custom research pattern
-- [examples/long_conversation](examples/long_conversation)
-  - chain memory + summarizing context assembly
-- [examples/sandbox_agent](examples/sandbox_agent)
-  - filesystem policy + safe tool execution
-- [examples/persistent_qa](examples/persistent_qa)
-  - file-backed custom memory
-- [examples/openai_compatible](examples/openai_compatible)
-  - OpenAI-compatible provider integration
+  - a production-style coding agent showing task packets, persistent memory, follow-up recovery, delivery artifacts, and app-defined protocols built above the SDK
+
+For the full example guide, read [docs/examples.md](docs/examples.md).
 
 ## Documentation
 
-Developer docs live in [docs-v2](docs-v2/README.md).
+Developer docs live in [docs/](docs/README.md).
 
 Recommended reading order:
 
-1. [Developer Guide](docs-v2/developer-guide.md)
-2. [Seams And Extension Points](docs-v2/seams-and-extension-points.md)
-3. [Configuration](docs-v2/configuration.md)
-4. [Plugin Development](docs-v2/plugin-development.md)
-5. [API Reference](docs-v2/api-reference.md)
-6. [Examples](docs-v2/examples.md)
+1. [Repository Layout](docs/repository-layout.md)
+2. [Developer Guide](docs/developer-guide.md)
+3. [Seams And Extension Points](docs/seams-and-extension-points.md)
+4. [Configuration](docs/configuration.md)
+5. [Plugin Development](docs/plugin-development.md)
+6. [API Reference](docs/api-reference.md)
+7. [Examples](docs/examples.md)
 
 ## Current Boundary
 

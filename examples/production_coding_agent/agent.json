@@ -1,0 +1,102 @@
+{
+  "version": "1.0",
+  "runtime": {
+    "type": "default",
+    "config": {
+      "tool_executor": {
+        "type": "safe",
+        "config": {
+          "default_timeout_ms": 2000
+        }
+      },
+      "response_repair_policy": {
+        "impl": "examples.production_coding_agent.app.plugins.CodingResponseRepairPolicy"
+      }
+    }
+  },
+  "agents": [
+    {
+      "id": "production-coding-agent",
+      "name": "Production Coding Agent",
+      "memory": {
+        "type": "chain",
+        "on_error": "continue",
+        "config": {
+          "memories": [
+            {
+              "type": "window_buffer",
+              "config": {
+                "window_size": 12
+              }
+            },
+            {
+              "impl": "examples.production_coding_agent.app.plugins.CodingMemory",
+              "config": {
+                "storage_dir": "examples/production_coding_agent/.agent_memory",
+                "max_items": 50
+              }
+            }
+          ]
+        }
+      },
+      "pattern": {
+        "impl": "examples.production_coding_agent.app.plugins.ProductionCodingPattern",
+        "config": {
+          "max_steps": 8
+        }
+      },
+      "context_assembler": {
+        "impl": "examples.production_coding_agent.app.plugins.CodingTaskContextAssembler",
+        "config": {
+          "workspace_root": "examples/production_coding_agent/workspace",
+          "outputs_root": "examples/production_coding_agent/outputs",
+          "brief_path": "examples/production_coding_agent/workspace/PRODUCT_BRIEF.md",
+          "max_messages": 12,
+          "max_artifacts": 8,
+          "max_workspace_files": 40
+        }
+      },
+      "followup_resolver": {
+        "impl": "examples.production_coding_agent.app.plugins.CodingFollowupResolver"
+      },
+      "response_repair_policy": {
+        "impl": "examples.production_coding_agent.app.plugins.CodingResponseRepairPolicy"
+      },
+      "llm": {
+        "provider": "anthropic",
+        "api_base": "https://api.minimax.chat/anthropic/v1",
+        "api_key_env": "MINIMAX_API_KEY",
+        "model": "MiniMax-M2.7",
+        "temperature": 0.1,
+        "max_tokens": 2048,
+        "timeout_ms": 60000
+      },
+      "execution_policy": {
+        "type": "filesystem",
+        "config": {
+          "read_roots": [
+            "examples/production_coding_agent/workspace",
+            "examples/production_coding_agent/outputs"
+          ],
+          "write_roots": [
+            "examples/production_coding_agent/outputs"
+          ],
+          "allow_tools": ["list_files", "ripgrep", "grep_files", "read_file", "write_file"]
+        }
+      },
+      "tools": [
+        { "id": "list_files", "type": "list_files" },
+        { "id": "ripgrep", "type": "ripgrep" },
+        { "id": "grep_files", "type": "grep_files" },
+        { "id": "read_file", "type": "read_file" },
+        { "id": "write_file", "type": "write_file" }
+      ],
+      "runtime": {
+        "max_steps": 8,
+        "step_timeout_ms": 30000,
+        "session_queue_size": 1000,
+        "event_queue_size": 2000
+      }
+    }
+  ]
+}

@@ -36,7 +36,7 @@ async def test_runtime_from_quickstart_config_file(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_runtime_from_custom_impl_config_file(tmp_path):
+async def test_runtime_from_custom_plugin_config_file(tmp_path):
     payload = {
         "version": "1.0",
         "agents": [

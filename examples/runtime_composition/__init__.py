@@ -1,1 +1,0 @@
-"""Runtime composition example package."""

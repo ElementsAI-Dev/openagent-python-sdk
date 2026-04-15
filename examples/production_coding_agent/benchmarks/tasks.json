@@ -1,0 +1,29 @@
+[
+  {
+    "task_id": "config-flow-report",
+    "prompt": "Investigate the API client configuration flow and produce a delivery report.",
+    "expected_files": ["app/config.py", "app/service.py"],
+    "expected_artifacts": ["delivery-report.md", "patch-plan.md", "verification-report.md"],
+    "expected_summary_terms": ["交付报告", "补丁计划"]
+  },
+  {
+    "task_id": "config-boundary-review",
+    "prompt": "Review the repository configuration boundary and propose focused next steps.",
+    "expected_files": ["app/config.py"],
+    "expected_artifacts": ["delivery-report.md", "verification-report.md"],
+    "expected_summary_terms": ["交付报告"]
+  },
+  {
+    "task_id": "todo-cli-generation",
+    "prompt": "Create a complete Python CLI project for task tracking with tests, pyproject, and README.",
+    "expected_artifacts": ["README.md", "pyproject.toml"],
+    "expected_summary_terms": ["Generated project"],
+    "expected_generated_files": [
+      "README.md",
+      "pyproject.toml",
+      "src/todo_cli_app/cli.py",
+      "src/todo_cli_app/service.py",
+      "tests/test_service.py"
+    ]
+  }
+]

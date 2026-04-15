@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from openagents.runtime.runtime import Runtime
+
+
+def load_env(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+async def main() -> None:
+    root = Path(__file__).parent
+    load_env(root / ".env")
+
+    if not os.environ.get("MINIMAX_API_KEY"):
+        print("[ERROR] MINIMAX_API_KEY not set.")
+        print("        Copy .env.example to .env and add your key.")
+        return
+
+    runtime = Runtime.from_config(root / "agent.json")
+    session_id = "production-coding-demo"
+
+    print("[INFO] Running production-style coding agent example")
+    print("[INFO] Workspace:", root / "workspace")
+    print()
+
+    first = await runtime.run(
+        agent_id="production-coding-agent",
+        session_id=session_id,
+        input_text="create a python-todo-cli project",
+    )
+    print("RUN 1:")
+    print(first)
+    print()
+
+    second = await runtime.run(
+        agent_id="production-coding-agent",
+        session_id=session_id,
+        input_text="what tools did you just call? please continue developing this project based on the results of the tool calls.",
+    )
+    print("RUN 2:")
+    print(second)
+
+    await runtime.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

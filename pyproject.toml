@@ -1,6 +1,6 @@
 [project]
-name = "openagents-sdk"
-version = "0.0.1"
+name = "openagent-sdk"
+version = "0.1.1"
 description = "Config-as-code agent SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,7 +25,7 @@ openai = [
     "openai>=1.0.0",
 ]
 all = [
-    "openagents-sdk[mcp,mem0,openai,dev]",
+    "openagent-sdk[mcp,mem0,openai,dev]",
 ]
 
 [build-system]

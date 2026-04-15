@@ -992,8 +992,8 @@ wheels = [
 ]
 
 [[package]]
-name = "openagents-sdk"
-version = "0.0.1"
+name = "openagent-sdk"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "httpx", extra = ["http2"] },
@@ -1032,7 +1032,7 @@ requires-dist = [
     { name = "httpx", extras = ["http2"], specifier = ">=0.28.1" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
     { name = "mem0ai", marker = "extra == 'mem0'", specifier = ">=1.0.5" },
-    { name = "openagents-sdk", extras = ["mcp", "mem0", "openai", "dev"], marker = "extra == 'all'" },
+    { name = "openagent-sdk", extras = ["mcp", "mem0", "openai", "dev"], marker = "extra == 'all'" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },

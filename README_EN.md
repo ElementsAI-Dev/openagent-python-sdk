@@ -161,16 +161,16 @@ At the code level:
 Install:
 
 ```bash
-uv add openagents-sdk
+uv add openagent-sdk
 ```
 
 Optional extras:
 
 ```bash
-uv add "openagents-sdk[openai]"
-uv add "openagents-sdk[mem0]"
-uv add "openagents-sdk[mcp]"
-uv add "openagents-sdk[all]"
+uv add "openagent-sdk[openai]"
+uv add "openagent-sdk[mem0]"
+uv add "openagent-sdk[mcp]"
+uv add "openagent-sdk[all]"
 ```
 
 Minimal config:

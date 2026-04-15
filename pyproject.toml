@@ -1,5 +1,5 @@
 [project]
-name = "openagent-sdk"
+name = "io-openagent-sdk"
 version = "0.1.1"
 description = "Config-as-code agent SDK"
 readme = "README.md"
@@ -25,7 +25,7 @@ openai = [
     "openai>=1.0.0",
 ]
 all = [
-    "openagent-sdk[mcp,mem0,openai,dev]",
+    "io-openagent-sdk[mcp,mem0,openai,dev]",
 ]
 
 [build-system]

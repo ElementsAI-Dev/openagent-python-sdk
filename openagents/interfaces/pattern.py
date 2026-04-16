@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
-from openagents.errors.exceptions import BudgetExhausted
+from pydantic import BaseModel, ValidationError
+
+from openagents.errors.exceptions import BudgetExhausted, ModelRetryError
 
 from .plugin import BasePlugin
 from .run_context import RunContext
@@ -270,3 +273,47 @@ class PatternPlugin(BasePlugin):
                 metadata=dict(metadata or {}),
             )
         )
+
+    async def finalize(
+        self,
+        raw: Any,
+        output_type: type[BaseModel] | None,
+    ) -> Any:
+        """Coerce and validate the pattern's raw output.
+
+        Default behavior:
+          - output_type is None → return raw unchanged.
+          - output_type present → call output_type.model_validate(raw).
+        Overriders may pre-process raw before delegating to super().finalize(...).
+        """
+        if output_type is None:
+            return raw
+        try:
+            return output_type.model_validate(raw)
+        except ValidationError as exc:
+            raise ModelRetryError(
+                self._format_validation_error(exc),
+                validation_error=exc,
+            )
+
+    def _format_validation_error(self, exc: "ValidationError") -> str:
+        lines = ["The output did not match the expected schema:"]
+        for err in exc.errors():
+            loc = ".".join(str(part) for part in err.get("loc", ()))
+            msg = err.get("msg", "invalid")
+            lines.append(f"- {loc or '(root)'}: {msg}")
+        return "\n".join(lines)
+
+    def _inject_validation_correction(self) -> None:
+        err = self.context.scratch.pop("last_validation_error", None) if self.context else None
+        if err is None:
+            return
+        self.context.transcript.append({
+            "role": "system",
+            "content": (
+                f"Your previous final output failed validation "
+                f"(attempt {err['attempt']}): {err['message']}\n"
+                f"Expected schema: {json.dumps(err['expected_schema'], indent=2)}\n"
+                f"Please produce a corrected final output."
+            ),
+        })

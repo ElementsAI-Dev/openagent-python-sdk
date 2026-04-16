@@ -38,5 +38,18 @@ def load_config_dict(payload: dict[str, Any]) -> AppConfig:
     except ValidationError as exc:
         first_error = exc.errors(include_url=False)[0]
         message = first_error.get("msg", str(exc))
+
+        loc = first_error.get("loc")
+        if loc:
+            location = ".".join(str(part) for part in loc)
+            message = f"{location}: {message}"
+
+        input_value = first_error.get("input")
+        if input_value is not None:
+            message = f"{message} (input={input_value!r})"
+
+        input_type = first_error.get("input_type")
+        if input_type:
+            message = f"{message} (input_type={input_type})"
         raise ConfigValidationError(message) from exc
 

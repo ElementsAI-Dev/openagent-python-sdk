@@ -183,6 +183,7 @@ class PlanExecutePattern(PatternPlugin):
 
     async def execute(self) -> Any:
         """Execute the complete Plan-Execute workflow."""
+        self._inject_validation_correction()
         ctx = self.context
         if not self._llm_enabled():
             return {"type": "final", "content": "PlanExecute requires LLM"}

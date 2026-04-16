@@ -9,6 +9,16 @@ from openagents.llm.base import LLMClient
 
 
 class MockLLMClient(LLMClient):
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        _ = api_key  # mock ignores credentials
+        self.provider_name = "mock"
+        self.model_id = model or ""
+
     async def complete(
         self,
         *,
@@ -84,3 +94,7 @@ class MockLLMClient(LLMClient):
         values.setdefault("input", "")
         values.setdefault("history_count", history_count)
         return values
+
+
+# Alias for callers that prefer the shorter name.
+MockClient = MockLLMClient

@@ -48,3 +48,20 @@ async def test_plan_execute_injects_correction():
     }
     pattern._inject_validation_correction()
     assert any(m.get("role") == "system" for m in pattern.context.transcript)
+
+
+@pytest.mark.asyncio
+async def test_reflexion_injects_correction():
+    from openagents.plugins.builtin.pattern.reflexion import ReflexionPattern
+
+    pattern = ReflexionPattern(config={})
+    await pattern.setup(
+        agent_id="a", session_id="s", input_text="hi",
+        state={}, tools={}, llm_client=None, llm_options=None,
+        event_bus=_Bus(), usage=RunUsage(),
+    )
+    pattern.context.scratch["last_validation_error"] = {
+        "attempt": 1, "message": "bad schema", "expected_schema": {}
+    }
+    pattern._inject_validation_correction()
+    assert any(m.get("role") == "system" for m in pattern.context.transcript)

@@ -192,6 +192,7 @@ class ReflexionPattern(PatternPlugin):
 
     async def execute(self) -> Any:
         """Execute with reflection after each step."""
+        self._inject_validation_correction()
         ctx = self.context
         max_steps = self._max_steps()
         retries = 0

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Generic, TypeVar
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -77,13 +77,16 @@ class RunRequest(BaseModel):
     deps: Any = None
 
 
-class RunResult(BaseModel):
+OutputT = TypeVar("OutputT")
+
+
+class RunResult(BaseModel, Generic[OutputT]):
     """Structured runtime result."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     run_id: str
-    final_output: Any = None
+    final_output: OutputT | None = None
     stop_reason: StopReason = StopReason.COMPLETED
     usage: RunUsage = Field(default_factory=RunUsage)
     artifacts: list[RunArtifact] = Field(default_factory=list)
@@ -197,3 +200,6 @@ class RuntimePlugin(BasePlugin):
 RUNTIME_RUN = "runtime.run"
 RUNTIME_MANAGE = "runtime.manage"  # start/stop/pause runtime
 RUNTIME_LIFECYCLE = "runtime.lifecycle"  # initialize/validate/health_check
+
+
+RunStreamChunk.model_rebuild()

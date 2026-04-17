@@ -571,7 +571,53 @@ raise PluginLoadError(
 会对已登记事件做 advisory 校验：缺少必需 payload key 会 warning，从不
 raise。未登记的事件名直接放行。
 
-## 23. 继续阅读
+## 23. Optional extras（Spec C）
+
+如果你的插件依赖一个 heavy / 可选的 PyPI 包（例如 `aiosqlite`、
+`opentelemetry-api`、`mem0ai`、`mcp`），不要把它放进 `[project]
+dependencies`，而是声明成一个 optional extra：
+
+```toml
+[project.optional-dependencies]
+sqlite = ["aiosqlite>=0.20.0"]
+otel = ["opentelemetry-api>=1.25.0"]
+```
+
+模块顶层用 fail-soft import 守住缺失：
+
+```python
+try:
+    import aiosqlite
+    _HAS_AIOSQLITE = True
+except ImportError:
+    aiosqlite = None  # type: ignore[assignment]
+    _HAS_AIOSQLITE = False
+```
+
+`__init__` 里在用户尝试构造时报 `PluginLoadError` 并带上安装提示：
+
+```python
+from openagents.errors.exceptions import PluginLoadError
+
+class MyOptionalPlugin(...):
+    def __init__(self, config=None):
+        if not _HAS_AIOSQLITE:
+            raise PluginLoadError(
+                "session 'sqlite' requires the 'aiosqlite' package",
+                hint="Install the 'sqlite' extra: uv sync --extra sqlite",
+            )
+        ...
+```
+
+这样 `openagents.plugins.registry` 即使在 extras 没装时也能 import
+（`_BUILTIN_REGISTRY` 注册的是类符号本身，不会去构造）。
+对应的测试用 `pytest.importorskip("aiosqlite")` 在文件顶部 skip
+掉，默认 `uv sync` 仍然全绿；CI 单独装 extra 跑一次即可。
+
+把新文件加进 `[tool.coverage.report] omit`，避免可选依赖没装时拖
+垮覆盖率门槛。
+
+## 24. 继续阅读
 
 - [开发者指南](developer-guide.md)
 - [Seam 与扩展点](seams-and-extension-points.md)

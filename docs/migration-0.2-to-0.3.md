@@ -222,3 +222,18 @@ YAML 输出 (`--format yaml`) 需要 optional 依赖：`pip install io-openagent
 
 - 覆盖率门槛从 90% 提升到 92%。配置 `pyproject.toml` 的
   `[tool.coverage.report].fail_under`。
+
+## 0.3.x extras: sqlite session + otel_bridge events
+
+- New optional builtin `session/sqlite` (`SqliteSessionManager`).
+  Install: `uv sync --extra sqlite` (adds `aiosqlite`).
+  Drop-in replacement for `jsonl_file` when you need indexed query
+  or cross-process readers. Schema is single-version; persisted data
+  from 0.3.x is not guaranteed to be readable by future major versions.
+
+- New optional builtin `events/otel_bridge`
+  (`OtelEventBusBridge`). Install: `uv sync --extra otel` (adds
+  `opentelemetry-api`). You also need an OTel TracerProvider
+  configured by the host process (typically via
+  `opentelemetry-sdk` + an exporter). Without a TracerProvider the
+  OTel API no-ops and the bridge becomes free.

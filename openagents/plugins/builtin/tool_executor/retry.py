@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from openagents.errors.exceptions import ToolError, ToolTimeoutError
+from openagents.errors.exceptions import ToolTimeoutError
 from openagents.interfaces.tool import (
     ToolExecutionRequest,
     ToolExecutionResult,
@@ -72,7 +72,7 @@ class RetryToolExecutor(ToolExecutorPlugin):
                 metadata.setdefault("retry_attempts", attempt + 1)
                 if delays:
                     metadata["retry_delays_ms"] = delays
-                    metadata["retry_reason"] = reasons
+                    metadata["retry_reasons"] = reasons
                 return result.model_copy(update={"metadata": metadata})
             last_result = result
             if attempt + 1 >= self._max_attempts:
@@ -81,11 +81,12 @@ class RetryToolExecutor(ToolExecutorPlugin):
             delays.append(delay_ms)
             reasons.append(type(result.exception).__name__ if result.exception else "unknown")
             await asyncio.sleep(delay_ms / 1000)
-        assert last_result is not None
+        if last_result is None:
+            raise RuntimeError("RetryToolExecutor.execute: no inner result produced; this is a programming error")
         metadata = dict(last_result.metadata or {})
         metadata["retry_attempts"] = self._max_attempts
         metadata["retry_delays_ms"] = delays
-        metadata["retry_reason"] = reasons
+        metadata["retry_reasons"] = reasons
         return last_result.model_copy(update={"metadata": metadata})
 
     async def execute_stream(self, request: ToolExecutionRequest):

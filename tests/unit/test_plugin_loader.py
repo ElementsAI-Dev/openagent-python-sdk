@@ -37,16 +37,19 @@ def test_load_agent_plugins_builtin_types():
 
 
 def test_load_agent_plugins_impl_types():
+    """Impl selectors load user-defined classes for each remaining seam.
+
+    Post seam-consolidation, ``execution_policy`` / ``followup_resolver`` /
+    ``response_repair_policy`` are no longer top-level agent seams. Policy is
+    owned by the ``ToolExecutor`` (via ``evaluate_policy``), and follow-up /
+    response-repair behavior is defined as overrides on the ``PatternPlugin``
+    subclass (see ``CustomPattern`` in ``tests/fixtures/custom_plugins.py``).
+    """
     payload = _base_payload()
     payload["agents"][0]["memory"] = {"impl": "tests.fixtures.custom_plugins.CustomMemory"}
     payload["agents"][0]["pattern"] = {"impl": "tests.fixtures.custom_plugins.CustomPattern"}
     payload["agents"][0]["tool_executor"] = {"impl": "tests.fixtures.custom_plugins.CustomToolExecutor"}
-    payload["agents"][0]["execution_policy"] = {"impl": "tests.fixtures.custom_plugins.CustomExecutionPolicy"}
     payload["agents"][0]["context_assembler"] = {"impl": "tests.fixtures.custom_plugins.CustomContextAssembler"}
-    payload["agents"][0]["followup_resolver"] = {"impl": "tests.fixtures.custom_plugins.CustomFollowupResolver"}
-    payload["agents"][0]["response_repair_policy"] = {
-        "impl": "tests.fixtures.custom_plugins.CustomResponseRepairPolicy"
-    }
     payload["agents"][0]["tools"] = [
         {"id": "custom_tool", "impl": "tests.fixtures.custom_plugins.CustomTool"}
     ]
@@ -56,10 +59,7 @@ def test_load_agent_plugins_impl_types():
     assert type(plugins.memory).__name__ == "CustomMemory"
     assert type(plugins.pattern).__name__ == "CustomPattern"
     assert type(plugins.tool_executor).__name__ == "CustomToolExecutor"
-    assert type(plugins.execution_policy).__name__ == "CustomExecutionPolicy"
     assert type(plugins.context_assembler).__name__ == "CustomContextAssembler"
-    assert type(plugins.followup_resolver).__name__ == "CustomFollowupResolver"
-    assert type(plugins.response_repair_policy).__name__ == "CustomResponseRepairPolicy"
     assert type(plugins.tools["custom_tool"]).__name__ == "CustomTool"
 
 

@@ -57,7 +57,7 @@ class CompositeExecutionPolicy(ExecutionPolicyPlugin):
                 "index": index,
                 "allowed": decision.allowed,
                 "reason": decision.reason,
-                **decision.metadata,
+                "metadata": dict(decision.metadata),
             })
             if self._mode == "all" and not decision.allowed:
                 return PolicyDecision(

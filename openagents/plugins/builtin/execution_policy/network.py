@@ -15,12 +15,13 @@ from openagents.interfaces.tool import (
 )
 
 
-_PRIVATE_PREFIXES = ("127.", "10.", "192.168.", "::1", "localhost")
+_PRIVATE_PREFIXES = ("127.", "10.", "192.168.")
+_PRIVATE_EXACT = {"localhost", "::1"}
 
 
 def _is_private(host: str) -> bool:
     h = host.lower()
-    if h in {"localhost", "::1"}:
+    if h in _PRIVATE_EXACT:
         return True
     if any(h.startswith(p) for p in _PRIVATE_PREFIXES):
         return True
@@ -48,6 +49,9 @@ class NetworkAllowlistExecutionPolicy(ExecutionPolicyPlugin):
         self._applies = set(cfg.applies_to_tools)
         self._deny_private = cfg.deny_private_networks
 
+    # Host is lowercased at init time (allow_hosts) and at parse time (urlparse.hostname).
+    # fnmatchcase is used for deterministic cross-platform matching (fnmatch.fnmatch is
+    # case-insensitive only on case-insensitive filesystems like Windows).
     def _host_allowed(self, host: str) -> bool:
         if not self._allow_hosts:
             return False

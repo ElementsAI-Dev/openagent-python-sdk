@@ -63,6 +63,22 @@ async def test_private_network_denied_when_flag_on():
 
 
 @pytest.mark.asyncio
+async def test_public_172_32_not_denied_by_private_check():
+    """172.32.x.x is public address space — must not be blanket-denied."""
+    policy = _make(allow_hosts=["172.32.0.1"], deny_private_networks=True, allow_schemes=["http"])
+    decision = await policy.evaluate(_req(url="http://172.32.0.1/x"))
+    assert decision.allowed is True, "172.32.0.1 is public and should pass when on allow_hosts"
+
+
+@pytest.mark.asyncio
+async def test_172_15_not_denied_by_private_check():
+    """172.15.x.x sits just below the private range and is public."""
+    policy = _make(allow_hosts=["172.15.0.1"], deny_private_networks=True, allow_schemes=["http"])
+    decision = await policy.evaluate(_req(url="http://172.15.0.1/x"))
+    assert decision.allowed is True
+
+
+@pytest.mark.asyncio
 async def test_private_network_allowed_when_flag_off():
     policy = _make(allow_hosts=["127.0.0.1"], deny_private_networks=False, allow_schemes=["http"])
     decision = await policy.evaluate(_req(url="http://127.0.0.1/x"))

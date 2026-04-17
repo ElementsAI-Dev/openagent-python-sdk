@@ -266,3 +266,48 @@ async def test_react_pattern_llm_execute_and_error_paths():
     await _setup_pattern(slow, llm_client=None, tools={}, input_text="slow")
     with pytest.raises(TimeoutError, match="timed out"):
         await slow.execute()
+
+
+def test_react_pattern_warns_on_unknown_config_keys(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="openagents.interfaces.typed_config"):
+        plugin = ReActPattern({"tool_prefix": "/x", "totally_unknown": 1})
+
+    assert plugin._tool_prefix() == "/x"
+    assert any(
+        "unknown config keys" in r.message
+        and "ReActPattern" in r.message
+        and "totally_unknown" in r.message
+        for r in caplog.records
+    )
+
+
+def test_plan_execute_pattern_warns_on_unknown_config_keys(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="openagents.interfaces.typed_config"):
+        plugin = PlanExecutePattern({"max_steps": 4, "totally_unknown": 1})
+
+    assert plugin._max_steps() == 4
+    assert any(
+        "unknown config keys" in r.message
+        and "PlanExecutePattern" in r.message
+        and "totally_unknown" in r.message
+        for r in caplog.records
+    )
+
+
+def test_reflexion_pattern_warns_on_unknown_config_keys(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="openagents.interfaces.typed_config"):
+        plugin = ReflexionPattern({"max_retries": 5, "totally_unknown": 1})
+
+    assert plugin._max_retries == 5
+    assert any(
+        "unknown config keys" in r.message
+        and "ReflexionPattern" in r.message
+        and "totally_unknown" in r.message
+        for r in caplog.records
+    )

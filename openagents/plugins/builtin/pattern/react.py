@@ -6,17 +6,27 @@ import asyncio
 import json
 from typing import Any
 
+from pydantic import BaseModel
+
 from openagents.interfaces.capabilities import PATTERN_EXECUTE, PATTERN_REACT
 from openagents.interfaces.pattern import PatternPlugin
+from openagents.interfaces.typed_config import TypedConfigPluginMixin
 
 
-class ReActPattern(PatternPlugin):
+class ReActPattern(TypedConfigPluginMixin, PatternPlugin):
     """ReAct pattern implementation."""
 
     _PENDING_TOOL_KEY = "_react_pending_tool"
 
+    class Config(BaseModel):
+        tool_prefix: str = "/tool"
+        echo_prefix: str = "Echo"
+        max_steps: int = 16
+        step_timeout_ms: int = 30000
+
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config or {}, capabilities={PATTERN_EXECUTE, PATTERN_REACT})
+        self._init_typed_config()
 
     # Default implementations - can be overridden
 
@@ -53,19 +63,22 @@ class ReActPattern(PatternPlugin):
     # Pattern-specific methods
 
     def _tool_prefix(self) -> str:
-        return str(self.config.get("tool_prefix", "/tool")).strip() or "/tool"
+        return self.cfg.tool_prefix.strip() or "/tool"
 
     def _echo_prefix(self) -> str:
-        return str(self.config.get("echo_prefix", "Echo")).strip() or "Echo"
+        return self.cfg.echo_prefix.strip() or "Echo"
 
     def _max_steps(self) -> int:
-        max_steps = self.config.get("max_steps", 16)
+        # Read from self.config (the raw dict) to honor post-init runtime
+        # budget overrides applied via DefaultRuntime._apply_runtime_budget.
+        max_steps = self.config.get("max_steps", self.cfg.max_steps)
         if isinstance(max_steps, int) and max_steps > 0:
             return max_steps
         return 16
 
     def _step_timeout_ms(self) -> int:
-        timeout = self.config.get("step_timeout_ms", 30000)
+        # See _max_steps note about runtime budget overrides.
+        timeout = self.config.get("step_timeout_ms", self.cfg.step_timeout_ms)
         if isinstance(timeout, int) and timeout > 0:
             return timeout
         return 30000

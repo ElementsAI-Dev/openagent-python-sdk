@@ -9,8 +9,9 @@ import pytest
 
 EXPECTED: list[tuple[str, str]] = [
     ("tool_executor", "retry"),
-    ("execution_policy", "composite"),
-    ("execution_policy", "network_allowlist"),
+    # execution_policy builtins (filesystem/composite/network_allowlist) were
+    # converted to standalone helpers in the seam-consolidation refactor and no
+    # longer register as plugins.
     ("followup_resolver", "rule_based"),
     ("session", "jsonl_file"),
     ("session", "sqlite"),

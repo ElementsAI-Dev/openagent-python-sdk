@@ -26,9 +26,6 @@ from openagents.plugins.builtin.context.truncating import TruncatingContextAssem
 from openagents.plugins.builtin.context.head_tail import HeadTailContextAssembler
 from openagents.plugins.builtin.context.sliding_window import SlidingWindowContextAssembler
 from openagents.plugins.builtin.context.importance_weighted import ImportanceWeightedContextAssembler
-from openagents.plugins.builtin.execution_policy.filesystem import FilesystemExecutionPolicy
-from openagents.plugins.builtin.execution_policy.composite import CompositeExecutionPolicy
-from openagents.plugins.builtin.execution_policy.network import NetworkAllowlistExecutionPolicy
 from openagents.plugins.builtin.followup.basic import BasicFollowupResolver
 from openagents.plugins.builtin.followup.rule_based import RuleBasedFollowupResolver
 from openagents.plugins.builtin.memory.buffer import BufferMemory
@@ -134,11 +131,7 @@ _BUILTIN_REGISTRY: dict[str, dict[str, type[Any]]] = {
         "safe": SafeToolExecutor,
         "retry": RetryToolExecutor,
     },
-    "execution_policy": {
-        "filesystem": FilesystemExecutionPolicy,
-        "composite": CompositeExecutionPolicy,
-        "network_allowlist": NetworkAllowlistExecutionPolicy,
-    },
+    "execution_policy": {},
     "context_assembler": {
         "truncating": TruncatingContextAssembler,
         "head_tail": HeadTailContextAssembler,

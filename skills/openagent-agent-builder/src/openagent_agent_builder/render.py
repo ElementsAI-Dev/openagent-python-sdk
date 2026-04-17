@@ -19,18 +19,14 @@ def _merge_mapping(base: dict[str, Any], override: dict[str, Any]) -> dict[str, 
 
 
 def _build_execution_policy(payload: OpenAgentSkillInput, tool_ids: list[str]) -> dict[str, Any] | None:
-    if not payload.workspace_root:
-        return None
-
-    writes = any(tool_id in {"write_file", "delete_file"} for tool_id in tool_ids)
-    read_only = bool(payload.constraints.get("read_only"))
-    config: dict[str, Any] = {
-        "allow_tools": tool_ids,
-        "read_roots": [payload.workspace_root],
-    }
-    if writes and not read_only:
-        config["write_roots"] = [payload.workspace_root]
-    return {"type": "filesystem", "config": config}
+    # The execution_policy seam was removed in the seam-consolidation refactor.
+    # Filesystem-aware policy is now embedded inside a ToolExecutorPlugin
+    # (e.g. FilesystemAwareExecutor) rather than registered as a top-level plugin.
+    # The generated config therefore no longer emits an `execution_policy` entry;
+    # users who need path sandboxing should select an executor that wraps
+    # FilesystemExecutionPolicy internally.
+    _ = (payload, tool_ids)
+    return None
 
 
 def _filter_tools(archetype_tools: list[dict[str, Any]], allowed_tools: list[str]) -> list[dict[str, Any]]:

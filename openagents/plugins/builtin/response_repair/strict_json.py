@@ -12,7 +12,7 @@ from openagents.interfaces.response_repair import ResponseRepairDecision, Respon
 from openagents.plugins.builtin.response_repair.basic import BasicResponseRepairPolicy
 
 
-_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*\n?(.*?)\n?```", re.DOTALL)
+_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?```", re.DOTALL | re.IGNORECASE)
 
 
 def _extract_balanced(text: str) -> str | None:

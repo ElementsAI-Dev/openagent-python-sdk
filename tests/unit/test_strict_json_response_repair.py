@@ -62,5 +62,25 @@ async def test_min_text_length_floor():
     assert decision.status == "abstain"
 
 
+@pytest.mark.asyncio
+async def test_bare_fence_without_language_tag_salvages():
+    policy = StrictJsonResponseRepairPolicy()
+    blocks = [{"type": "text", "text": "pre\n```\n{\"a\": 1}\n```\npost"}]
+    decision = await _call(policy, blocks)
+    assert decision.status == "repaired"
+    assert json.loads(decision.output[0]["text"]) == {"a": 1}
+    assert decision.metadata["salvaged_from"] == "fenced_code"
+
+
+@pytest.mark.asyncio
+async def test_mixed_case_json_fence_salvages():
+    policy = StrictJsonResponseRepairPolicy()
+    blocks = [{"type": "text", "text": "```Json\n{\"b\": 2}\n```"}]
+    decision = await _call(policy, blocks)
+    assert decision.status == "repaired"
+    assert json.loads(decision.output[0]["text"]) == {"b": 2}
+    assert decision.metadata["salvaged_from"] == "fenced_code"
+
+
 def test_registered_as_builtin():
     assert get_builtin_plugin_class("response_repair_policy", "strict_json") is StrictJsonResponseRepairPolicy

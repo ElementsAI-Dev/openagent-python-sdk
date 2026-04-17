@@ -433,14 +433,9 @@ policy 输出：
 
 主要方法：
 
+- `async evaluate_policy(request) -> PolicyDecision` — override to restrict tool execution (default：allow all)
 - `async execute(request) -> ToolExecutionResult`
 - `async execute_stream(request)`
-
-### `ExecutionPolicyPlugin`
-
-主要方法：
-
-- `async evaluate(request) -> PolicyDecision`
 
 ### `MemoryPlugin`
 
@@ -463,6 +458,8 @@ policy 输出：
 - `async call_llm(...) -> str`
 - `async compress_context() -> None`
 - `add_artifact(...) -> None`
+- `async resolve_followup(*, context) -> FollowupResolution | None` — override to answer follow-ups locally (default：abstain)
+- `async repair_empty_response(*, context, messages, assistant_content, stop_reason, retries) -> ResponseRepairDecision | None` — override to recover from bad LLM responses (default：abstain)
 
 ### `SkillsPlugin`
 
@@ -478,18 +475,6 @@ policy 输出：
 
 - `async assemble(request, session_state, session_manager) -> ContextAssemblyResult`
 - `async finalize(request, session_state, session_manager, result) -> result`
-
-### `FollowupResolverPlugin`
-
-主要方法：
-
-- `async resolve(context=...) -> FollowupResolution | None`
-
-### `ResponseRepairPolicyPlugin`
-
-主要方法：
-
-- `async repair_empty_response(...) -> ResponseRepairDecision | None`
 
 ### `RuntimePlugin`
 

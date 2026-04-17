@@ -2,5 +2,6 @@
 
 from .composite import CompositeExecutionPolicy
 from .filesystem import FilesystemExecutionPolicy
+from .network import NetworkAllowlistExecutionPolicy
 
-__all__ = ["FilesystemExecutionPolicy", "CompositeExecutionPolicy"]
+__all__ = ["FilesystemExecutionPolicy", "CompositeExecutionPolicy", "NetworkAllowlistExecutionPolicy"]

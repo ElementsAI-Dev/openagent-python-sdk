@@ -101,6 +101,15 @@ def _load_plugin(kind: str, ref: PluginRef, *, required_methods: tuple[str, ...]
         return _instantiate(symbol, ref.config)
     # Fall back to type (builtin or decorator-registered)
     if ref.type:
+        # 0.3.0 deprecated-rename guard: the old "summarizing" context_assembler
+        # never actually summarized, just truncated. Direct users explicitly to
+        # the new name rather than a generic "unknown plugin" error.
+        if kind == "context_assembler" and ref.type == "summarizing":
+            raise PluginLoadError(
+                "context_assembler type 'summarizing' was renamed to 'truncating' in 0.3.0 "
+                "because the old implementation only truncated without summarizing. "
+                "Rename to 'truncating', or set impl= to your own LLM-based summarizer."
+            )
         plugin_cls = get_builtin_plugin_class(kind, ref.type)
         if plugin_cls is None:
             raise PluginLoadError(f"Unknown {kind} plugin type: '{ref.type}'")

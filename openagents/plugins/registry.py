@@ -38,6 +38,7 @@ from openagents.plugins.builtin.pattern.reflexion import ReflexionPattern
 from openagents.plugins.builtin.runtime.default_runtime import DefaultRuntime
 from openagents.plugins.builtin.response_repair.basic import BasicResponseRepairPolicy
 from openagents.plugins.builtin.session.in_memory import InMemorySessionManager
+from openagents.plugins.builtin.session.jsonl_file import JsonlFileSessionManager
 from openagents.plugins.builtin.tool_executor.safe import SafeToolExecutor
 from openagents.plugins.builtin.tool_executor.retry import RetryToolExecutor
 from openagents.plugins.builtin.tool.common import BuiltinSearchTool
@@ -112,6 +113,7 @@ _BUILTIN_REGISTRY: dict[str, dict[str, type[Any]]] = {
     },
     "session": {
         "in_memory": InMemorySessionManager,
+        "jsonl_file": JsonlFileSessionManager,
     },
     "events": {
         "async": AsyncEventBus,

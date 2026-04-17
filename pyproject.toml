@@ -25,6 +25,12 @@ openai = [
     "httpx>=0.27.0",
     "openai>=1.0.0",
 ]
+otel = [
+    "opentelemetry-api>=1.25.0",
+]
+sqlite = [
+    "aiosqlite>=0.20.0",
+]
 tokenizers = [
     "tiktoken>=0.7.0",
 ]
@@ -32,7 +38,7 @@ yaml = [
     "pyyaml>=6.0",
 ]
 all = [
-    "io-openagent-sdk[mcp,mem0,openai,dev,tokenizers,yaml]",
+    "io-openagent-sdk[mcp,mem0,openai,otel,sqlite,dev,tokenizers,yaml]",
 ]
 
 [project.scripts]
@@ -59,6 +65,8 @@ skip_covered = true
 omit = [
     "openagents/plugins/builtin/memory/mem0_memory.py",
     "openagents/plugins/builtin/tool/mcp_tool.py",
+    "openagents/plugins/builtin/session/sqlite_backed.py",
+    "openagents/plugins/builtin/events/otel_bridge.py",
 ]
 
 [dependency-groups]

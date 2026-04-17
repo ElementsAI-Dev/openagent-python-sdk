@@ -14,11 +14,6 @@ from openagents.errors.exceptions import PluginLoadError
 from openagents.interfaces.followup import FollowupResolution, FollowupResolverPlugin
 
 
-class _SafeDict(collections.defaultdict):
-    def __missing__(self, key: str) -> str:
-        return ""
-
-
 class Rule(BaseModel):
     name: str
     pattern: str
@@ -51,9 +46,15 @@ class RuleBasedFollowupResolver(FollowupResolverPlugin):
                 )
             for item in raw:
                 file_rules.append(Rule.model_validate(item))
-        self._rules: list[tuple[Rule, re.Pattern[str]]] = [
-            (r, re.compile(r.pattern, re.IGNORECASE)) for r in (*file_rules, *cfg.rules)
-        ]
+        self._rules: list[tuple[Rule, re.Pattern[str]]] = []
+        for r in (*file_rules, *cfg.rules):
+            try:
+                compiled = re.compile(r.pattern, re.IGNORECASE)
+            except re.error as exc:
+                raise PluginLoadError(
+                    f"rule_based followup_resolver: invalid pattern in rule '{r.name}': {exc}"
+                ) from exc
+            self._rules.append((r, compiled))
 
     async def resolve(self, *, context: Any) -> FollowupResolution | None:
         text = str(getattr(context, "input_text", "") or "")
@@ -67,10 +68,12 @@ class RuleBasedFollowupResolver(FollowupResolverPlugin):
             last = history[-1] if isinstance(history, list) and history else {}
             last = last if isinstance(last, dict) else {}
             tool_ids: list[str] = []
-            for item in (last.get("tool_results") or []):
-                if isinstance(item, dict) and isinstance(item.get("tool_id"), str):
-                    tool_ids.append(item["tool_id"])
-            mapping = _SafeDict(str, {
+            raw_tool_results = last.get("tool_results")
+            if isinstance(raw_tool_results, list):
+                for item in raw_tool_results:
+                    if isinstance(item, dict) and isinstance(item.get("tool_id"), str):
+                        tool_ids.append(item["tool_id"])
+            mapping = collections.defaultdict(str, {
                 "tool_ids": ", ".join(tool_ids),
                 "last_input": str(last.get("input", "")),
                 "last_output": str(last.get("output", "")),

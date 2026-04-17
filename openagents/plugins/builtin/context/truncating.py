@@ -1,4 +1,4 @@
-"""Summarizing context assembler."""
+"""Truncating context assembler (count-based, no LLM involved)."""
 
 from __future__ import annotations
 
@@ -7,8 +7,16 @@ from typing import Any
 from openagents.interfaces.context import ContextAssemblerPlugin, ContextAssemblyResult
 
 
-class SummarizingContextAssembler(ContextAssemblerPlugin):
-    """Builtin context assembler that trims transcript and artifact history."""
+class TruncatingContextAssembler(ContextAssemblerPlugin):
+    """Builtin context assembler that trims transcript and artifact history.
+
+    Pure count-based truncation. Keeps the last ``max_messages`` entries of
+    the transcript and the last ``max_artifacts`` session artifacts. Does
+    NOT call an LLM; inserted system message is a plain count summary.
+
+    Renamed from ``SummarizingContextAssembler`` in 0.3.0 because the
+    previous name misled users into expecting LLM-driven summarization.
+    """
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config or {}, capabilities=set())
@@ -45,9 +53,11 @@ class SummarizingContextAssembler(ContextAssemblerPlugin):
             transcript=transcript,
             session_artifacts=artifacts,
             metadata={
-                "assembler": "summarizing",
+                "assembler": "truncating",
+                "strategy": "truncating",
                 "omitted_messages": omitted_messages,
                 "omitted_artifacts": omitted_artifacts,
+                "token_counter": "none",
             },
         )
 

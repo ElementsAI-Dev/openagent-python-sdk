@@ -736,7 +736,7 @@ class DefaultRuntime(RuntimePlugin):
         return self._get_execution_policy()
 
     def _get_context_assembler(self) -> ContextAssemblerPlugin:
-        from openagents.plugins.builtin.context.summarizing import SummarizingContextAssembler
+        from openagents.plugins.builtin.context.truncating import TruncatingContextAssembler
 
         if self._context_assembler is not None:
             return self._context_assembler
@@ -745,7 +745,7 @@ class DefaultRuntime(RuntimePlugin):
             default_factory=_DefaultContextAssembler,
             builtin_factories={
                 "default": _DefaultContextAssembler,
-                "summarizing": SummarizingContextAssembler,
+                "truncating": TruncatingContextAssembler,
             },
             required_methods=("assemble", "finalize"),
         )

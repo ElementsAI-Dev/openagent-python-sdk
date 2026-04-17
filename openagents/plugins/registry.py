@@ -19,7 +19,7 @@ from openagents.decorators import (
 )
 from openagents.plugins.builtin.events.async_event_bus import AsyncEventBus
 from openagents.plugins.builtin.skills.local import LocalSkillsManager
-from openagents.plugins.builtin.context.summarizing import SummarizingContextAssembler
+from openagents.plugins.builtin.context.truncating import TruncatingContextAssembler
 from openagents.plugins.builtin.execution_policy.filesystem import FilesystemExecutionPolicy
 from openagents.plugins.builtin.followup.basic import BasicFollowupResolver
 from openagents.plugins.builtin.memory.buffer import BufferMemory
@@ -119,7 +119,7 @@ _BUILTIN_REGISTRY: dict[str, dict[str, type[Any]]] = {
         "filesystem": FilesystemExecutionPolicy,
     },
     "context_assembler": {
-        "summarizing": SummarizingContextAssembler,
+        "truncating": TruncatingContextAssembler,
     },
     "followup_resolver": {
         "basic": BasicFollowupResolver,

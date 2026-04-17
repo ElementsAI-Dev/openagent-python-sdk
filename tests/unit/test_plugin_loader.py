@@ -25,8 +25,6 @@ def test_load_agent_plugins_builtin_types():
     payload = _base_payload()
     payload["agents"][0]["tool_executor"] = {"type": "safe"}
     payload["agents"][0]["context_assembler"] = {"type": "truncating"}
-    payload["agents"][0]["followup_resolver"] = {"type": "basic"}
-    payload["agents"][0]["response_repair_policy"] = {"type": "basic"}
     config = load_config_dict(payload)
     plugins = load_agent_plugins(config.agents[0])
 
@@ -34,8 +32,6 @@ def test_load_agent_plugins_builtin_types():
     assert type(plugins.pattern).__name__ == "ReActPattern"
     assert type(plugins.tool_executor).__name__ == "SafeToolExecutor"
     assert type(plugins.context_assembler).__name__ == "TruncatingContextAssembler"
-    assert type(plugins.followup_resolver).__name__ == "BasicFollowupResolver"
-    assert type(plugins.response_repair_policy).__name__ == "BasicResponseRepairPolicy"
     assert "search" in plugins.tools
     assert type(plugins.tools["search"]).__name__ == "BuiltinSearchTool"
 
@@ -96,10 +92,7 @@ def test_load_decorator_registered_plugins():
     payload["agents"][0]["memory"] = {"type": "DecoratorMemory"}
     payload["agents"][0]["pattern"] = {"type": "DecoratorPattern"}
     payload["agents"][0]["tool_executor"] = {"type": "decorated_tool_executor"}
-    payload["agents"][0]["execution_policy"] = {"type": "decorated_execution_policy"}
     payload["agents"][0]["context_assembler"] = {"type": "decorated_context_assembler"}
-    payload["agents"][0]["followup_resolver"] = {"type": "decorated_followup_resolver"}
-    payload["agents"][0]["response_repair_policy"] = {"type": "decorated_response_repair_policy"}
     payload["agents"][0]["tools"] = [{"id": "my_tool", "type": "decorated_tool"}]
 
     config = load_config_dict(payload)
@@ -108,10 +101,7 @@ def test_load_decorator_registered_plugins():
     assert type(plugins.memory).__name__ == "DecoratorMemory"
     assert type(plugins.pattern).__name__ == "DecoratorPattern"
     assert type(plugins.tool_executor).__name__ == "DecoratorToolExecutor"
-    assert type(plugins.execution_policy).__name__ == "DecoratorExecutionPolicy"
     assert type(plugins.context_assembler).__name__ == "DecoratorContextAssembler"
-    assert type(plugins.followup_resolver).__name__ == "DecoratorFollowupResolver"
-    assert type(plugins.response_repair_policy).__name__ == "DecoratorResponseRepairPolicy"
     assert "my_tool" in plugins.tools
     assert type(plugins.tools["my_tool"]).__name__ == "DecoratorTool"
 

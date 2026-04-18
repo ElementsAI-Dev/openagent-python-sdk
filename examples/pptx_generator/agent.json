@@ -8,11 +8,11 @@
     "redact_keys": ["api_key", "authorization", "token", "secret", "password"]
   },
   "events": {
-    "type": "rich_console",
+    "impl": "examples.pptx_generator.app.events.PrettyEventBus",
     "config": {
       "inner": { "type": "async" },
-      "show_payload": false,
-      "stream": "stderr"
+      "stream": "stderr",
+      "show_details": true
     }
   },
   "runtime": {

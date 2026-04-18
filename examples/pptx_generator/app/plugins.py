@@ -22,7 +22,7 @@ from pydantic import ValidationError
 from openagents.interfaces.capabilities import PATTERN_EXECUTE
 from openagents.interfaces.pattern import PatternPlugin
 
-from ..state import IntentReport
+from ..state import IntentReport, ResearchFindings
 
 _INTENT_SYSTEM = """You are a presentation planning assistant.
 Extract an IntentReport as JSON only. Required fields:
@@ -108,3 +108,90 @@ class IntentAnalystPattern(PatternPlugin):
         raise RuntimeError(
             f"IntentAnalystPattern exhausted {self.max_steps} retries; last raw: {last_raw[:200]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Stage 3: ResearchPattern
+# ---------------------------------------------------------------------------
+
+_RESEARCH_SYSTEM = """Given a set of search results per query, output a JSON
+ResearchFindings with: queries_executed, sources (url/title/snippet),
+key_facts (3..8 bullet-style facts), caveats. Output ONLY JSON, no markdown fencing."""
+
+
+def _try_parse_research(raw: str) -> tuple[ResearchFindings | None, str | None]:
+    text = _extract_json_block(raw)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return None, f"JSON parse failed: {exc.msg}"
+    try:
+        return ResearchFindings.model_validate(data), None
+    except ValidationError as exc:
+        return None, f"Schema validation failed: {exc.errors()}"
+
+
+class ResearchPattern(PatternPlugin):
+    """Stage 3: fetch search results via Tavily MCP (with REST fallback) then summarize.
+
+    Pipeline:
+      1. For each query in ``state['intent']['research_queries']`` (up to 5):
+         try ``run_tool("tavily_mcp", {"query": q})``;
+         on exception, try ``run_tool("tavily_fallback", {"query": q})``.
+      2. Assemble a compact JSON payload of all queries + their results.
+      3. Ask the LLM to synthesize a ResearchFindings JSON.
+      4. On parse success, store result in ``state['research']`` and return it.
+      5. If ``research_queries`` is empty, skip all steps and return empty findings.
+    """
+
+    def __init__(self, config: dict[str, Any] | None = None):
+        super().__init__(config=config or {}, capabilities={PATTERN_EXECUTE})
+        self.max_steps = int((config or {}).get("max_steps", 6))
+
+    async def execute(self) -> ResearchFindings:
+        ctx = self.context
+        if ctx is None:
+            raise RuntimeError("ResearchPattern.context is not set")
+
+        intent = ctx.state.get("intent") or {}
+        queries = list(intent.get("research_queries") or [])[:5]
+        if not queries:
+            empty = ResearchFindings()
+            ctx.state["research"] = empty.model_dump(mode="json")
+            return empty
+
+        search_blocks: list[dict[str, Any]] = []
+        for q in queries:
+            data = await self._search_one(q)
+            search_blocks.append({"query": q, "results": data.get("results", [])})
+
+        user_content = json.dumps({"queries": search_blocks}, ensure_ascii=False)
+        last_raw = ""
+        for _step in range(1, self.max_steps + 1):
+            messages = [
+                {"role": "system", "content": _RESEARCH_SYSTEM},
+                {"role": "user", "content": user_content},
+            ]
+            raw = await ctx.llm_client.complete(messages=messages)
+            last_raw = str(raw or "")
+            parsed, reason = _try_parse_research(last_raw)
+            if parsed is not None:
+                ctx.state["research"] = parsed.model_dump(mode="json")
+                return parsed
+            user_content = user_content + (
+                f"\n\nPrevious attempt failed ({reason}). Raw output was:\n{last_raw}\nRetry with valid JSON."
+            )
+        raise RuntimeError(
+            f"ResearchPattern exhausted {self.max_steps} retries; last raw: {last_raw[:200]}"
+        )
+
+    async def _search_one(self, query: str) -> dict[str, Any]:
+        """MCP first, REST fallback on any exception."""
+        try:
+            result = await self.context.run_tool("tavily_mcp", {"query": query})
+        except Exception:
+            result = await self.context.run_tool("tavily_fallback", {"query": query})
+        data = getattr(result, "data", result)
+        if not isinstance(data, dict):
+            return {"query": query, "results": []}
+        return data

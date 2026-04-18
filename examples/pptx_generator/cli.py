@@ -95,6 +95,7 @@ async def run_wizard(
     project: DeckProject,
     *,
     resume: bool = False,
+    topic: str | None = None,
     runtime=None,
     shell_tool=None,
 ) -> int:
@@ -176,7 +177,7 @@ async def run_wizard(
     )
 
     steps = [
-        IntentWizardStep(runtime=runtime, topic_hint=None),
+        IntentWizardStep(runtime=runtime, topic_hint=topic),
         EnvDoctorWizardStep(doctor=doctor),
         ResearchWizardStep(runtime=runtime),
         OutlineWizardStep(runtime=runtime),
@@ -209,7 +210,7 @@ async def main(argv: Sequence[str] | None = None) -> int:
             stage="intent",
         )
         save_project(project, root=outputs_root())
-        return await run_wizard(project)
+        return await run_wizard(project, topic=args.topic)
     if args.command == "resume":
         project = load_project(args.slug, root=outputs_root())
         return await run_wizard(project, resume=True)

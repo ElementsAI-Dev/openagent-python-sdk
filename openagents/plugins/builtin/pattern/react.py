@@ -230,7 +230,7 @@ class ReActPattern(TypedConfigPluginMixin, PatternPlugin):
                 retries=0,
             )
             if repair is not None and repair.status == "repaired":
-                raw = repair.output if isinstance(repair.output, str) else str(repair.output)
+                raw = repair.output
         action = self._parse_llm_action(raw)
         if action.get("type") == "tool_call":
             tool_id = action.get("tool") or action.get("tool_id")

@@ -105,10 +105,12 @@ class ToolExecutorPlugin(BasePlugin):
     async def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
         decision = await self.evaluate_policy(request)
         if not decision.allowed:
+            msg = f"policy denied: {decision.reason}"
             return ToolExecutionResult(
                 tool_id=request.tool_id,
                 success=False,
-                error=f"policy denied: {decision.reason}",
+                error=msg,
+                exception=ToolError(msg, tool_name=request.tool_id),
             )
         try:
             data = await request.tool.invoke(request.params or {}, request.context)
@@ -132,6 +134,10 @@ class ToolExecutorPlugin(BasePlugin):
         self,
         request: ToolExecutionRequest,
     ) -> AsyncIterator[dict[str, Any]]:
+        decision = await self.evaluate_policy(request)
+        if not decision.allowed:
+            msg = f"policy denied: {decision.reason}"
+            raise ToolError(msg, tool_name=request.tool_id)
         async for chunk in request.tool.invoke_stream(request.params or {}, request.context):
             yield chunk
 

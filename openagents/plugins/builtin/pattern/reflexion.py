@@ -221,7 +221,7 @@ class ReflexionPattern(TypedConfigPluginMixin, PatternPlugin):
                     retries=0,
                 )
                 if repair is not None and repair.status == "repaired":
-                    raw = repair.output if isinstance(repair.output, str) else str(repair.output)
+                    raw = repair.output
             return self._parse_llm_response(raw)
 
         # No LLM, just continue

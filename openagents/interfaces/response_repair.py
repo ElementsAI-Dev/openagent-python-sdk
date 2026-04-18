@@ -11,6 +11,6 @@ class ResponseRepairDecision:
     """Structured decision for repairing a bad or empty model response."""
 
     status: str = "abstain"
-    output: Any = None
+    output: str = ""
     reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)

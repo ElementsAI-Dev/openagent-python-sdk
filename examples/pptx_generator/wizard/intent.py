@@ -49,6 +49,10 @@ class IntentWizardStep:
             session_id=project.slug,
             input_text=self.topic_hint or "",
         )
+        # Runtime.run returns the pattern's final_output directly (IntentReport).
+        if isinstance(result, IntentReport):
+            return result
+        # Back-compat for test doubles that wrap it: SimpleNamespace(parsed=...) or state dict.
         parsed = getattr(result, "parsed", None)
         if isinstance(parsed, IntentReport):
             return parsed

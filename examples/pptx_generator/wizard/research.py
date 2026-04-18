@@ -54,6 +54,8 @@ class ResearchWizardStep:
 
     @staticmethod
     def _extract_findings(result: Any) -> ResearchFindings:
+        if isinstance(result, ResearchFindings):
+            return result
         parsed = getattr(result, "parsed", None)
         if isinstance(parsed, ResearchFindings):
             return parsed

@@ -53,6 +53,8 @@ class ThemeWizardStep:
 
     @staticmethod
     def _extract(result: Any) -> ThemeSelection:
+        if isinstance(result, ThemeSelection):
+            return result
         parsed = getattr(result, "parsed", None)
         if isinstance(parsed, ThemeSelection):
             return parsed

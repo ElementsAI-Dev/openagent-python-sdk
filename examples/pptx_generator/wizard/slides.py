@@ -35,12 +35,14 @@ class SlideGeneratorWizardStep:
                     session_id=project.slug,
                     input_text=payload,
                 )
+                if isinstance(result, SlideIR):
+                    return result
                 parsed = getattr(result, "parsed", None)
-                if not isinstance(parsed, SlideIR):
-                    raise RuntimeError(
-                        f"slide {spec.index} returned no SlideIR"
-                    )
-                return parsed
+                if isinstance(parsed, SlideIR):
+                    return parsed
+                raise RuntimeError(
+                    f"slide {spec.index} returned no SlideIR"
+                )
 
         raw = await asyncio.gather(
             *(run_one(s) for s in project.outline.slides), return_exceptions=True,

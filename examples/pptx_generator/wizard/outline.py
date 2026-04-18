@@ -46,6 +46,8 @@ class OutlineWizardStep:
 
     @staticmethod
     def _extract(result: Any) -> SlideOutline:
+        if isinstance(result, SlideOutline):
+            return result
         parsed = getattr(result, "parsed", None)
         if isinstance(parsed, SlideOutline):
             return parsed

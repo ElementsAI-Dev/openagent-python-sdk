@@ -5,7 +5,6 @@ import types
 
 import pytest
 
-from openagents.llm.base import LLMUsage
 from openagents.llm.providers import _http_base as http_base_module
 from openagents.llm.providers.anthropic import AnthropicClient
 

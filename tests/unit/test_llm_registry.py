@@ -4,8 +4,8 @@ import pytest
 
 from openagents.config.schema import LLMOptions
 from openagents.errors.exceptions import ConfigValidationError
-from openagents.llm.registry import create_llm_client
 from openagents.llm.providers.mock import MockLLMClient
+from openagents.llm.registry import create_llm_client
 
 
 def test_create_llm_client_mock():

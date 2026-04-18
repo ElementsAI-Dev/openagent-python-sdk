@@ -8,8 +8,19 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from openagents.config.schema import AgentDefinition, AppConfig
+
 from pydantic import BaseModel
 
+from openagents.errors.exceptions import (
+    BudgetExhausted,
+    MaxStepsExceeded,
+    ModelRetryError,
+    OpenAgentsError,
+    OutputValidationError,
+    PatternError,
+)
 from openagents.interfaces.capabilities import (
     MEMORY_INJECT,
     MEMORY_WRITEBACK,
@@ -18,9 +29,8 @@ from openagents.interfaces.capabilities import (
 from openagents.interfaces.context import ContextAssemblerPlugin, ContextAssemblyResult
 from openagents.interfaces.events import (
     CONTEXT_CREATED,
-    EventBusPlugin,
-    MEMORY_INJECTED,
     MEMORY_INJECT_FAILED,
+    MEMORY_INJECTED,
     MEMORY_WRITEBACK_FAILED,
     MEMORY_WRITEBACK_SUCCEEDED,
     RUN_COMPLETED,
@@ -28,26 +38,19 @@ from openagents.interfaces.events import (
     RUN_REQUESTED,
     RUN_VALIDATED,
     SESSION_ACQUIRED,
+    EventBusPlugin,
 )
 from openagents.interfaces.pattern import PatternPlugin
 from openagents.interfaces.runtime import (
     RUN_STOP_COMPLETED,
     RUN_STOP_FAILED,
     RUN_STOP_TIMEOUT,
+    RUNTIME_RUN,
     RunRequest,
     RunResult,
+    RuntimePlugin,
     RunUsage,
     StopReason,
-    RUNTIME_RUN,
-    RuntimePlugin,
-)
-from openagents.errors.exceptions import (
-    BudgetExhausted,
-    MaxStepsExceeded,
-    ModelRetryError,
-    OpenAgentsError,
-    OutputValidationError,
-    PatternError,
 )
 from openagents.interfaces.session import SessionArtifact
 from openagents.interfaces.tool import (

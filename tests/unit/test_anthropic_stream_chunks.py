@@ -4,7 +4,6 @@ import types
 
 import pytest
 
-from openagents.llm.base import LLMUsage
 from openagents.llm.providers import _http_base as http_base_module
 from openagents.llm.providers.anthropic import AnthropicClient
 
@@ -80,7 +79,8 @@ async def test_complete_stream_normalizes_content_block_start_payload(monkeypatc
     records = [
         (
             b"event: content_block_start\n"
-            b'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read"}}\n\n'
+            b'data: {"type":"content_block_start","index":0,'
+            b'"content_block":{"type":"tool_use","id":"toolu_1","name":"read"}}\n\n'
         ),
     ]
 

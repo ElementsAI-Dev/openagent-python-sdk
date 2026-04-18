@@ -7,11 +7,11 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     import tomli as tomllib
 
+import pytest
+
 import openagents
 import openagents.config as config_module
 import openagents.plugins as plugins_module
-import pytest
-
 from openagents.config.schema import LLMOptions
 from openagents.errors.exceptions import ConfigError
 from openagents.interfaces.capabilities import PATTERN_EXECUTE, TOOL_INVOKE, normalize_capabilities, supports
@@ -21,7 +21,7 @@ from openagents.interfaces.memory import MemoryPlugin
 from openagents.interfaces.pattern import PatternPlugin
 from openagents.interfaces.plugin import BasePlugin
 from openagents.interfaces.run_context import RunContext
-from openagents.interfaces.runtime import RunArtifact, RunRequest, RunResult, RunUsage, RuntimePlugin, StopReason
+from openagents.interfaces.runtime import RunArtifact, RunRequest, RuntimePlugin, RunUsage, StopReason
 from openagents.interfaces.session import SessionArtifact, SessionCheckpoint, SessionManagerPlugin
 from openagents.interfaces.skills import SessionSkillSummary, SkillsPlugin
 from openagents.interfaces.tool import ToolPlugin
@@ -74,7 +74,10 @@ class _RecordingEventBus(EventBusPlugin):
 
 
 class _EchoLLM(LLMClient):
-    async def complete(self, *, messages, model=None, temperature=None, max_tokens=None, tools=None, tool_choice=None, response_format=None):
+    async def complete(
+        self, *, messages, model=None, temperature=None, max_tokens=None,
+        tools=None, tool_choice=None, response_format=None,
+    ):
         _ = (model, temperature, max_tokens, tools, tool_choice)
         return messages[-1]["content"]
 
@@ -190,7 +193,9 @@ async def test_pattern_plugin_setup_call_tool_call_llm_compose_prompt_and_artifa
     assert pattern.context.usage.total_tokens == 0
     assert pattern.context.assembly_metadata == {"origin": "test"}
     assert len(pattern.context.artifacts) == 1
-    assert pattern.context.artifacts[0] == RunArtifact(name="report.txt", kind="text", payload="done", metadata={"k": "v"})
+    assert pattern.context.artifacts[0] == RunArtifact(
+        name="report.txt", kind="text", payload="done", metadata={"k": "v"}
+    )
     assert [event.name for event in bus.events] == [
         "tool.called",
         "tool.succeeded",

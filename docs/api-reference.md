@@ -82,13 +82,22 @@
 
 ## 2. Runtime facade
 
-### `Runtime(config: AppConfig, _skip_plugin_load: bool = False, _config_path: Path | None = None)`
+### `Runtime(config: AppConfig | None = None, *, _config_path: Path | None = None)`
 
-对外的 runtime facade。内部持有：
+对外的 runtime facade。`config` 省略或传 `None` 时等价于 `AppConfig()`：pydantic schema 会把顶层 `runtime`/`session`/`events`/`skills` 填成 builtin 默认引用（`default`/`in_memory`/`async`/`local`），插件加载器按统一路径解析。
+
+内部持有：
 
 - app config
-- 顶层 runtime / session / events 组件
+- 顶层 runtime / session / events / skills 组件（始终经由 loader 加载）
 - 按 session + agent 缓存的插件 bundle
+
+```python
+Runtime()                              # 零 agents、全 builtin
+Runtime(AppConfig(agents=[...]))       # 仅填 agents，其他 schema 补默认
+Runtime.from_dict({"agents": [...]})   # 最小 dict
+Runtime.from_config("agent.json")      # 完整 JSON
+```
 
 ### `Runtime.from_config(config_path: str | Path) -> Runtime`
 

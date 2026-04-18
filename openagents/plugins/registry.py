@@ -11,18 +11,17 @@ from openagents.decorators import (
     _PATTERN_REGISTRY,
     _RUNTIME_REGISTRY,
     _SESSION_REGISTRY,
-    _TOOL_REGISTRY,
     _TOOL_EXECUTOR_REGISTRY,
+    _TOOL_REGISTRY,
 )
+from openagents.plugins.builtin.context.head_tail import HeadTailContextAssembler
+from openagents.plugins.builtin.context.importance_weighted import ImportanceWeightedContextAssembler
+from openagents.plugins.builtin.context.sliding_window import SlidingWindowContextAssembler
+from openagents.plugins.builtin.context.truncating import TruncatingContextAssembler
 from openagents.plugins.builtin.events.async_event_bus import AsyncEventBus
 from openagents.plugins.builtin.events.file_logging import FileLoggingEventBus
 from openagents.plugins.builtin.events.otel_bridge import OtelEventBusBridge
 from openagents.plugins.builtin.events.rich_console import RichConsoleEventBus
-from openagents.plugins.builtin.skills.local import LocalSkillsManager
-from openagents.plugins.builtin.context.truncating import TruncatingContextAssembler
-from openagents.plugins.builtin.context.head_tail import HeadTailContextAssembler
-from openagents.plugins.builtin.context.sliding_window import SlidingWindowContextAssembler
-from openagents.plugins.builtin.context.importance_weighted import ImportanceWeightedContextAssembler
 from openagents.plugins.builtin.memory.buffer import BufferMemory
 from openagents.plugins.builtin.memory.chain import ChainMemory
 from openagents.plugins.builtin.memory.mem0_memory import Mem0Memory
@@ -34,9 +33,7 @@ from openagents.plugins.builtin.runtime.default_runtime import DefaultRuntime
 from openagents.plugins.builtin.session.in_memory import InMemorySessionManager
 from openagents.plugins.builtin.session.jsonl_file import JsonlFileSessionManager
 from openagents.plugins.builtin.session.sqlite_backed import SqliteSessionManager
-from openagents.plugins.builtin.tool_executor.safe import SafeToolExecutor
-from openagents.plugins.builtin.tool_executor.retry import RetryToolExecutor
-from openagents.plugins.builtin.tool_executor.filesystem_aware import FilesystemAwareExecutor
+from openagents.plugins.builtin.skills.local import LocalSkillsManager
 from openagents.plugins.builtin.tool.common import BuiltinSearchTool
 from openagents.plugins.builtin.tool.datetime_tools import (
     CurrentTimeTool,
@@ -49,7 +46,9 @@ from openagents.plugins.builtin.tool.file_ops import (
     ReadFileTool,
     WriteFileTool,
 )
+from openagents.plugins.builtin.tool.http_ops import HttpRequestTool
 from openagents.plugins.builtin.tool.math_tools import CalcTool, MinMaxTool, PercentageTool
+from openagents.plugins.builtin.tool.mcp_tool import McpTool
 from openagents.plugins.builtin.tool.network_tools import (
     HostLookupTool,
     QueryParamTool,
@@ -62,7 +61,6 @@ from openagents.plugins.builtin.tool.random_tools import (
     RandomStringTool,
     UUIDTool,
 )
-from openagents.plugins.builtin.tool.http_ops import HttpRequestTool
 from openagents.plugins.builtin.tool.system_ops import (
     ExecuteCommandTool,
     GetEnvTool,
@@ -74,7 +72,9 @@ from openagents.plugins.builtin.tool.text_ops import (
     RipgrepTool,
     TextTransformTool,
 )
-from openagents.plugins.builtin.tool.mcp_tool import McpTool
+from openagents.plugins.builtin.tool_executor.filesystem_aware import FilesystemAwareExecutor
+from openagents.plugins.builtin.tool_executor.retry import RetryToolExecutor
+from openagents.plugins.builtin.tool_executor.safe import SafeToolExecutor
 
 # Mapping from kind to decorator registry
 _DECORATOR_REGISTRY_MAP: dict[str, dict[str, type[Any]]] = {

@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
+if TYPE_CHECKING:
+    from openagents.config.schema import LLMPricing
 
 logger = logging.getLogger("openagents.llm")
 

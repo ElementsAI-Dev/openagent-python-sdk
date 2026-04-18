@@ -82,13 +82,22 @@ Its purpose is to tell you: **where the current stable API surface is.**
 
 ## 2. Runtime facade
 
-### `Runtime(config: AppConfig, _skip_plugin_load: bool = False, _config_path: Path | None = None)`
+### `Runtime(config: AppConfig | None = None, *, _config_path: Path | None = None)`
 
-The external runtime facade. Internally holds:
+The external runtime facade. Omitting ``config`` (or passing ``None``) is equivalent to ``AppConfig()``: the pydantic schema fills in builtin defaults for top-level ``runtime``/``session``/``events``/``skills`` (``default``/``in_memory``/``async``/``local``) and the plugin loader resolves everything through a single path.
+
+Internally holds:
 
 - The app config
-- Top-level runtime / session / events components
+- Top-level runtime / session / events / skills components (always loader-resolved)
 - A per-(session, agent) plugin bundle cache
+
+```python
+Runtime()                              # zero agents, all builtin defaults
+Runtime(AppConfig(agents=[...]))       # agents only — rest defaulted by schema
+Runtime.from_dict({"agents": [...]})   # minimal dict
+Runtime.from_config("agent.json")      # full JSON
+```
 
 ### `Runtime.from_config(config_path: str | Path) -> Runtime`
 

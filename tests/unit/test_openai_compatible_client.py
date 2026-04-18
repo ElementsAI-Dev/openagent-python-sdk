@@ -5,13 +5,14 @@ import types
 
 import pytest
 
-from openagents.llm.base import LLMUsage
 from openagents.llm.providers import _http_base as http_base_module
 from openagents.llm.providers.openai_compatible import OpenAICompatibleClient
 
 
 class _FakeResponse:
-    def __init__(self, *, status_code: int = 200, json_data: dict | None = None, records: list[bytes] | None = None) -> None:
+    def __init__(
+        self, *, status_code: int = 200, json_data: dict | None = None, records: list[bytes] | None = None
+    ) -> None:
         self.status_code = status_code
         self._json_data = json_data or {}
         self._records = records or []
@@ -56,7 +57,9 @@ class _FakeAsyncClient:
         self.closed = True
 
 
-def _install_fake_httpx(monkeypatch, *, response: _FakeResponse, stream_response: _FakeResponse | None = None) -> _FakeAsyncClient:
+def _install_fake_httpx(
+    monkeypatch, *, response: _FakeResponse, stream_response: _FakeResponse | None = None
+) -> _FakeAsyncClient:
     fake_client = _FakeAsyncClient(response=response, stream_response=stream_response)
     fake_httpx = types.SimpleNamespace(
         Timeout=lambda *args, **kwargs: {"args": args, "kwargs": kwargs},

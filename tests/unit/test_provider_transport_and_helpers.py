@@ -7,7 +7,9 @@ import pytest
 
 from openagents.llm.providers import _http_base as http_base_module
 from openagents.llm.providers._http_base import HTTPProviderClient
-from openagents.llm.providers.anthropic import AnthropicClient, _parse_tool_input as anthropic_parse_tool_input, _parse_usage as anthropic_parse_usage
+from openagents.llm.providers.anthropic import AnthropicClient
+from openagents.llm.providers.anthropic import _parse_tool_input as anthropic_parse_tool_input
+from openagents.llm.providers.anthropic import _parse_usage as anthropic_parse_usage
 from openagents.llm.providers.openai_compatible import (
     OpenAICompatibleClient,
     _extract_text_content,
@@ -62,7 +64,9 @@ class _FakeAsyncClient:
         self.closed = True
 
 
-def _install_fake_httpx(monkeypatch, *, response: _FakeResponse, stream_response: _FakeResponse | None = None) -> _FakeAsyncClient:
+def _install_fake_httpx(
+    monkeypatch, *, response: _FakeResponse, stream_response: _FakeResponse | None = None
+) -> _FakeAsyncClient:
     fake_client = _FakeAsyncClient(response=response, stream_response=stream_response)
     fake_httpx = types.SimpleNamespace(
         Timeout=lambda *args, **kwargs: {"args": args, "kwargs": kwargs},
@@ -142,7 +146,9 @@ async def test_anthropic_complete_stream_handles_raw_choice_records_and_http_err
     error_stream = _FakeResponse(status_code=429, json_data={"error": "rate-limited"})
     _install_fake_httpx(monkeypatch, response=_FakeResponse(json_data={}), stream_response=error_stream)
     error_client = AnthropicClient(api_base="https://api.anthropic.com", model="claude-test")
-    error_chunks = [chunk async for chunk in error_client.complete_stream(messages=[{"role": "user", "content": "hello"}])]
+    error_chunks = [
+        chunk async for chunk in error_client.complete_stream(messages=[{"role": "user", "content": "hello"}])
+    ]
     assert error_chunks[0].type == "error"
     assert "HTTP 429" in (error_chunks[0].error or "")
 
@@ -195,6 +201,8 @@ async def test_openai_compatible_complete_stream_handles_http_errors_and_trailin
     error_stream = _FakeResponse(status_code=401, json_data={"error": "unauthorized"})
     _install_fake_httpx(monkeypatch, response=_FakeResponse(json_data={}), stream_response=error_stream)
     error_client = OpenAICompatibleClient(api_base="https://api.openai.com/v1", model="gpt-test")
-    error_chunks = [chunk async for chunk in error_client.complete_stream(messages=[{"role": "user", "content": "hello"}])]
+    error_chunks = [
+        chunk async for chunk in error_client.complete_stream(messages=[{"role": "user", "content": "hello"}])
+    ]
     assert error_chunks[0].type == "error"
     assert "HTTP 401" in (error_chunks[0].error or "")

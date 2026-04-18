@@ -24,6 +24,7 @@ from openagents.plugins.builtin.events.otel_bridge import OtelEventBusBridge
 from openagents.plugins.builtin.events.rich_console import RichConsoleEventBus
 from openagents.plugins.builtin.memory.buffer import BufferMemory
 from openagents.plugins.builtin.memory.chain import ChainMemory
+from openagents.plugins.builtin.memory.markdown_memory import MarkdownMemory
 from openagents.plugins.builtin.memory.mem0_memory import Mem0Memory
 from openagents.plugins.builtin.memory.window_buffer import WindowBufferMemory
 from openagents.plugins.builtin.pattern.plan_execute import PlanExecutePattern
@@ -49,6 +50,9 @@ from openagents.plugins.builtin.tool.file_ops import (
 from openagents.plugins.builtin.tool.http_ops import HttpRequestTool
 from openagents.plugins.builtin.tool.math_tools import CalcTool, MinMaxTool, PercentageTool
 from openagents.plugins.builtin.tool.mcp_tool import McpTool
+from openagents.plugins.builtin.tool.memory_tools import RememberPreferenceTool
+from openagents.plugins.builtin.tool.shell_exec import ShellExecTool
+from openagents.plugins.builtin.tool.tavily_search import TavilySearchTool
 from openagents.plugins.builtin.tool.network_tools import (
     HostLookupTool,
     QueryParamTool,
@@ -92,9 +96,10 @@ _DECORATOR_REGISTRY_MAP: dict[str, dict[str, type[Any]]] = {
 _BUILTIN_REGISTRY: dict[str, dict[str, type[Any]]] = {
     "memory": {
         "buffer": BufferMemory,
-        "window_buffer": WindowBufferMemory,
-        "mem0": Mem0Memory,
         "chain": ChainMemory,
+        "markdown_memory": MarkdownMemory,
+        "mem0": Mem0Memory,
+        "window_buffer": WindowBufferMemory,
     },
     "pattern": {
         "react": ReActPattern,
@@ -144,6 +149,12 @@ _BUILTIN_REGISTRY: dict[str, dict[str, type[Any]]] = {
         "text_transform": TextTransformTool,
         # HTTP operations
         "http_request": HttpRequestTool,
+        # Memory tools
+        "remember_preference": RememberPreferenceTool,
+        # Shell execution
+        "shell_exec": ShellExecTool,
+        # Web search
+        "tavily_search": TavilySearchTool,
         # System operations
         "execute_command": ExecuteCommandTool,
         "get_env": GetEnvTool,

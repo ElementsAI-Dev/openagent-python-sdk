@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0] - 2026-04-19
+
+*Draft stub; final entries land in the release commit.*
+
+### Added
+
+- TBD (shell_exec, tavily_search, markdown_memory, remember_preference, env_doctor, cli/wizard, pptx-agent example — see plan docs/superpowers/plans/2026-04-18-pptx-agent.md).
+
+### Changed
+
+- Version bump 0.3.0 → 0.4.0.
+- New `pptx` optional-dependency group.
+
 ## 0.3.0 — 2026-04-16
 
 Kernel completeness release. Deepens existing contracts without adding new seams.

@@ -1,6 +1,6 @@
 [project]
 name = "io-openagent-sdk"
-version = "0.3.0"
+version = "0.4.0"
 description = "Config-as-code agent SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,12 +43,19 @@ tokenizers = [
 yaml = [
     "pyyaml>=6.0",
 ]
+pptx = [
+    "io-openagent-sdk[rich,mcp]",
+    "questionary>=2.0.1",
+    "python-dotenv>=1.0",
+    "httpx>=0.27.0",
+]
 all = [
-    "io-openagent-sdk[mcp,mem0,openai,otel,rich,sqlite,dev,tokenizers,yaml]",
+    "io-openagent-sdk[mcp,mem0,openai,otel,rich,sqlite,dev,tokenizers,yaml,pptx]",
 ]
 
 [project.scripts]
 openagents = "openagents.cli.main:main"
+pptx-agent = "examples.pptx_generator.cli:main_sync"
 
 [build-system]
 requires = ["setuptools>=68.0.0"]

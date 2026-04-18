@@ -17,13 +17,7 @@ from examples.pptx_generator.app.plugins import ResearchPattern
 from examples.pptx_generator.state import ResearchFindings
 
 
-def _make_ctx(*, intent=None, llm_return: str = "", tool_return=None):
-    if tool_return is None:
-        tool_return = {"query": "q1", "results": []}
-
-    async def run_tool(tool_id, params):
-        return SimpleNamespace(data=tool_return)
-
+def _make_ctx(*, intent=None, llm_return: str = ""):
     return SimpleNamespace(
         input_text="",
         state={"intent": intent or {}},
@@ -32,7 +26,6 @@ def _make_ctx(*, intent=None, llm_return: str = "", tool_return=None):
         assembly_metadata={},
         llm_client=SimpleNamespace(complete=AsyncMock(return_value=llm_return)),
         tools={},
-        run_tool=run_tool,
     )
 
 
@@ -51,9 +44,14 @@ async def test_research_happy_path(monkeypatch):
         "caveats": [],
     })
     intent = {"research_queries": ["q1"]}
-    ctx = _make_ctx(intent=intent, llm_return=findings_json, tool_return=tool_data)
+    ctx = _make_ctx(intent=intent, llm_return=findings_json)
+
+    async def run_tool(tool_id, params):
+        return SimpleNamespace(data=tool_data)
+
     pattern = ResearchPattern(config={})
     pattern.context = ctx
+    pattern.call_tool = run_tool
     result = await pattern.execute()
     assert isinstance(result, ResearchFindings)
     assert result.key_facts == ["A says fact A"]
@@ -100,10 +98,10 @@ async def test_research_falls_back_to_tavily_rest_when_mcp_errors():
         assembly_metadata={},
         llm_client=SimpleNamespace(complete=AsyncMock(return_value=findings_json)),
         tools={},
-        run_tool=run_tool,
     )
     pattern = ResearchPattern(config={})
     pattern.context = ctx
+    pattern.call_tool = run_tool
     result = await pattern.execute()
     assert isinstance(result, ResearchFindings)
     assert mcp_call_count["n"] == 1

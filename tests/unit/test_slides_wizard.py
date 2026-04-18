@@ -85,5 +85,5 @@ async def test_raises_when_slide_returns_no_ir():
     step = SlideGeneratorWizardStep(runtime=runtime, concurrency=2)
     # slide_count_hint ge=3 — use n=3 but all runs return no IR
     project = _base_project(n=3)
-    with pytest.raises(RuntimeError, match="SlideIR"):
+    with pytest.raises(RuntimeError, match="all slides failed|SlideIR"):
         await step.render(console=None, project=project)

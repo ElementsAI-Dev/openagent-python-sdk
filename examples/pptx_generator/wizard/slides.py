@@ -42,9 +42,28 @@ class SlideGeneratorWizardStep:
                     )
                 return parsed
 
-        slides = await asyncio.gather(*(run_one(s) for s in project.outline.slides))
+        raw = await asyncio.gather(
+            *(run_one(s) for s in project.outline.slides), return_exceptions=True,
+        )
+        slides: list[SlideIR] = []
+        errors: list[str] = []
+        for result in raw:
+            if isinstance(result, SlideIR):
+                slides.append(result)
+            elif isinstance(result, BaseException):
+                errors.append(str(result))
+
+        if not slides and errors:
+            raise RuntimeError(f"all slides failed: {errors[0]}")
+
         project.slides = sorted(slides, key=lambda s: s.index)
         project.stage = "compile"
+
+        if console is not None and errors:
+            try:
+                console.print(f"[yellow]Slides with errors: {len(errors)}[/yellow]")
+            except Exception:
+                pass
 
         if console is not None:
             try:

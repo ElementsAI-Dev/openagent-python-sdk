@@ -189,9 +189,9 @@ class ResearchPattern(PatternPlugin):
     async def _search_one(self, query: str) -> dict[str, Any]:
         """MCP first, REST fallback on any exception."""
         try:
-            result = await self.context.run_tool("tavily_mcp", {"query": query})
+            result = await self.call_tool("tavily_mcp", {"query": query})
         except Exception:
-            result = await self.context.run_tool("tavily_fallback", {"query": query})
+            result = await self.call_tool("tavily_fallback", {"query": query})
         data = getattr(result, "data", result)
         if not isinstance(data, dict):
             return {"query": query, "results": []}

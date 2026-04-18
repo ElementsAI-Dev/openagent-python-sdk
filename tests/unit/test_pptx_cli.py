@@ -1,10 +1,36 @@
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock
 
 import pytest
 
-from examples.pptx_generator.cli import build_parser, main
+from examples.pptx_generator.cli import _load_env_files, build_parser, main
+
+
+def test_load_env_files_loads_user_dotenv(tmp_path, monkeypatch):
+    """_load_env_files should load vars from user-level .env if dotenv is available."""
+    pytest.importorskip("dotenv")
+
+    user_env_dir = tmp_path / "config" / "pptx-agent"
+    user_env_dir.mkdir(parents=True)
+    env_file = user_env_dir / ".env"
+    env_file.write_text("TEST_PPTX_LOAD_ENV=hello_dotenv\n", encoding="utf-8")
+
+    import examples.pptx_generator.cli as cli_mod
+
+    original_expanduser = cli_mod.Path.expanduser
+
+    def fake_expanduser(self):
+        if "pptx-agent" in str(self):
+            return env_file
+        return original_expanduser(self)
+
+    monkeypatch.setattr(cli_mod.Path, "expanduser", fake_expanduser)
+    monkeypatch.delenv("TEST_PPTX_LOAD_ENV", raising=False)
+
+    _load_env_files()
+    assert os.environ.get("TEST_PPTX_LOAD_ENV") == "hello_dotenv"
 
 
 def test_parser_has_new_and_resume():
@@ -55,6 +81,23 @@ async def test_main_dispatches_resume_loads_existing(monkeypatch, tmp_path):
     assert rc == 0
     assert captured["slug"] == "abc"
     assert captured["resume"] is True
+
+
+@pytest.mark.asyncio
+async def test_resume_on_done_project_exits_cleanly(tmp_path, monkeypatch, capsys):
+    from datetime import datetime, timezone
+
+    from examples.pptx_generator.persistence import save_project
+    from examples.pptx_generator.state import DeckProject
+
+    monkeypatch.setenv("PPTX_AGENT_OUTPUTS", str(tmp_path))
+    done = DeckProject(slug="finished", created_at=datetime.now(timezone.utc), stage="done")
+    save_project(done, root=tmp_path)
+
+    rc = await main(["resume", "finished"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "already complete" in captured.out.lower()
 
 
 @pytest.mark.asyncio

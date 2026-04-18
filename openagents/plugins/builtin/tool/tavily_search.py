@@ -65,7 +65,12 @@ class TavilySearchTool(TypedConfigPluginMixin, ToolPlugin):
         timeout = httpx.Timeout(self.cfg.timeout_ms / 1000.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(_API_URL, json=payload)
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise RuntimeError(
+                    f"Tavily API returned HTTP {exc.response.status_code}"
+                ) from None
             data = resp.json()
         return {
             "query": data.get("query", query),

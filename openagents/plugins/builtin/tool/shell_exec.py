@@ -73,8 +73,15 @@ class ShellExecTool(TypedConfigPluginMixin, ToolPlugin):
         if not argv:
             raise ValueError("'command' resolved to empty argv")
         allow = self.cfg.command_allowlist
-        if allow is not None and os.path.basename(argv[0]) not in allow and argv[0] not in allow:
-            raise ValueError(f"command {argv[0]!r} not in allowlist {allow!r}")
+        if allow is not None:
+            first = argv[0]
+            # Reject path-like argv[0] to prevent bypassing allowlist via absolute/relative paths
+            if os.sep in first or (os.altsep and os.altsep in first):
+                raise ValueError(
+                    f"command {first!r} must be a bare name (no path) when command_allowlist is active"
+                )
+            if first not in allow:
+                raise ValueError(f"command {first!r} not in allowlist {allow!r}")
         return argv
 
     def _resolve_env(self, extra: dict[str, str] | None) -> dict[str, str]:

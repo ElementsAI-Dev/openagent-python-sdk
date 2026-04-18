@@ -35,7 +35,7 @@ async def test_times_out():
 @pytest.mark.asyncio
 async def test_allowlist_rejects_unlisted_command():
     tool = ShellExecTool(config={"command_allowlist": ["node"]})
-    with pytest.raises(ValueError, match="not in allowlist"):
+    with pytest.raises(ValueError, match="not in allowlist|must be a bare name"):
         await tool.invoke({"command": [sys.executable, "-c", "pass"]}, context=None)
 
 

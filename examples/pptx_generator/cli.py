@@ -16,13 +16,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+try:
+    from dotenv import load_dotenv as _load_dotenv
+except ImportError:
+    _load_dotenv = None
+
 from openagents.cli.wizard import Wizard
 from openagents.plugins.builtin.tool.shell_exec import ShellExecTool
 from openagents.runtime.runtime import Runtime as _Runtime
 from openagents.utils.env_doctor import (
     CliBinaryCheck,
-    EnvVarCheck,
     EnvironmentDoctor,
+    EnvVarCheck,
     NodeVersionCheck,
     NpmCheck,
     PythonVersionCheck,
@@ -73,6 +78,15 @@ def _slugify(topic: str | None) -> str:
     return f"{base}-{stamp}"
 
 
+def _load_env_files() -> None:
+    """Load user-level .env file if python-dotenv is installed."""
+    if _load_dotenv is None:
+        return
+    user_env = Path("~/.config/pptx-agent/.env").expanduser()
+    if user_env.exists():
+        _load_dotenv(user_env, override=False)
+
+
 def outputs_root() -> Path:
     return Path(os.environ.get("PPTX_AGENT_OUTPUTS", "examples/pptx_generator/outputs"))
 
@@ -101,6 +115,10 @@ async def run_wizard(
     """
     outputs = outputs_root()
     save_project(project, root=outputs)
+
+    if resume and project.stage == "done":
+        print(f"Project {project.slug!r} is already complete.")
+        return 0
 
     if runtime is None:
         runtime = _Runtime.from_config(
@@ -180,6 +198,7 @@ async def run_wizard(
 
 
 async def main(argv: Sequence[str] | None = None) -> int:
+    _load_env_files()
     args = build_parser().parse_args(argv)
     if args.command == "new":
         slug = args.slug or _slugify(args.topic)

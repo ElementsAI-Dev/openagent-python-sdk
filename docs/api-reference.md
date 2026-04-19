@@ -644,6 +644,17 @@ policy 输出：
 - `get_dependencies() -> list[str]`
 - `async fallback(error, params, context) -> Any`
 
+**扩展方法（2026-04-19）**—— 全部带默认实现，单工具按需覆写：
+
+- `async invoke_batch(items: list[BatchItem], context) -> list[BatchResult]` —— 默认顺序循环 `invoke`；可覆写以下沉（MCP 单会话批量、多文件批读等）。结果顺序与 `item_id` 与输入严格一致。
+- `async invoke_background(params, context) -> JobHandle` —— 提交长任务，立即返回句柄；默认 `NotImplementedError`。
+- `async poll_job(handle, context) -> JobStatus` —— 查询后台任务状态；默认 `NotImplementedError`。
+- `async cancel_job(handle, context) -> bool` —— 取消后台任务；默认 `NotImplementedError`。
+- `requires_approval(params, context) -> bool` —— 是否需要人工审批；默认读 `execution_spec().approval_mode == "always"`。
+- `async before_invoke(params, context)` / `async after_invoke(params, context, result, exception=None)` —— 每次调用前/后钩子（区别于每 run 一次的 `preflight`）。`after_invoke` 在成功与失败分支都会运行。
+
+伴随的新 pydantic 模型：`BatchItem` / `BatchResult` / `JobHandle` / `JobStatus`（见 `openagents.interfaces.tool`）。
+
 ### `ToolExecutorPlugin`
 
 主要方法：
@@ -651,6 +662,14 @@ policy 输出：
 - `async evaluate_policy(request) -> PolicyDecision` — override to restrict tool execution (default：allow all)
 - `async execute(request) -> ToolExecutionResult`
 - `async execute_stream(request)`
+- `async execute_batch(requests) -> list[ToolExecutionResult]` —— 默认顺序循环 `execute`；builtin `ConcurrentBatchExecutor` 按 `execution_spec.concurrency_safe` 分组并发。
+
+`ToolExecutionRequest` 新增 `cancel_event: asyncio.Event | None` 字段；`DefaultRuntime` 在每个 run 前种入 `ctx.scratch['__cancel_event__']`，`_BoundTool.invoke` 把它串入 request，`SafeToolExecutor.execute` 会与 `cancel_event` / `timeout` 三方竞速。`ToolExecutionSpec.interrupt_behavior == "block"` 时忽略 cancel 并等待 tool 自然完成。
+
+**新错误子类（`openagents.errors.exceptions`）**：
+`ToolValidationError` / `ToolAuthError`（不重试）、`ToolRateLimitError` / `ToolUnavailableError`（`RetryToolExecutor` 默认重试）、`ToolCancelledError`（cancel_event 触发时由 `SafeToolExecutor` 抛出，不重试）。
+
+**Pattern 便捷方法**：`PatternPlugin.call_tool_batch(requests: list[tuple[str, dict]]) -> list[Any]` —— 按 `tool_id` 分组调用 `invoke_batch`，保持输入顺序；发 `tool.batch.started` / `tool.batch.completed` 事件。
 
 ### `MemoryPlugin`
 

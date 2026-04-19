@@ -648,6 +648,17 @@ Key methods:
 - `get_dependencies() -> list[str]`
 - `async fallback(error, params, context) -> Any`
 
+**Extension methods (2026-04-19)** — all have default implementations; override per-tool as needed:
+
+- `async invoke_batch(items: list[BatchItem], context) -> list[BatchResult]` — default is a sequential loop over `invoke`; override to push batching down (MCP bulk calls, multi-file reads, pipelined HTTP). Result list length, order, and `item_id`s must match the input.
+- `async invoke_background(params, context) -> JobHandle` — submit a long-running job; return handle immediately. Default raises `NotImplementedError`.
+- `async poll_job(handle, context) -> JobStatus` — query background job status. Default raises `NotImplementedError`.
+- `async cancel_job(handle, context) -> bool` — cancel a background job. Default raises `NotImplementedError`.
+- `requires_approval(params, context) -> bool` — whether this call needs human approval. Default returns `execution_spec().approval_mode == "always"`.
+- `async before_invoke(params, context)` / `async after_invoke(params, context, result, exception=None)` — per-call pre/post hooks (distinct from `preflight`, which runs once per run). `after_invoke` fires on both success and failure paths.
+
+Accompanying pydantic models: `BatchItem` / `BatchResult` / `JobHandle` / `JobStatus` in `openagents.interfaces.tool`.
+
 ### `ToolExecutorPlugin`
 
 Key methods:
@@ -655,6 +666,14 @@ Key methods:
 - `async evaluate_policy(request) -> PolicyDecision` — override to restrict tool execution (default: allow all)
 - `async execute(request) -> ToolExecutionResult`
 - `async execute_stream(request)`
+- `async execute_batch(requests) -> list[ToolExecutionResult]` — default is a sequential loop over `execute`. The builtin `ConcurrentBatchExecutor` partitions by `execution_spec.concurrency_safe` and runs the safe group in parallel under a `Semaphore(max_concurrency)`.
+
+`ToolExecutionRequest` gains `cancel_event: asyncio.Event | None`. `DefaultRuntime` seeds `ctx.scratch['__cancel_event__']` before each run; `_BoundTool.invoke` threads it through to the request; `SafeToolExecutor.execute` runs a 3-way race (invoke vs. timeout vs. cancel). `ToolExecutionSpec.interrupt_behavior == "block"` makes the executor ignore cancel and wait for natural completion.
+
+**New error subclasses (`openagents.errors.exceptions`)**:
+`ToolValidationError` / `ToolAuthError` (not retried), `ToolRateLimitError` / `ToolUnavailableError` (retried by default in `RetryToolExecutor`), `ToolCancelledError` (raised by `SafeToolExecutor` when `cancel_event` fires; not retried).
+
+**Pattern convenience**: `PatternPlugin.call_tool_batch(requests: list[tuple[str, dict]]) -> list[Any]` groups calls by `tool_id`, dispatches through `invoke_batch`, and preserves input order. Emits `tool.batch.started` and `tool.batch.completed` events.
 
 ### `MemoryPlugin`
 

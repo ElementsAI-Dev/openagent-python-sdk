@@ -85,6 +85,16 @@ class ThemeSelection(BaseModel):
     page_badge_style: Literal["circle", "pill"]
 
 
+class ThemeCandidateList(BaseModel):
+    candidates: list[ThemeSelection]
+
+    @model_validator(mode="after")
+    def _bounded(self) -> "ThemeCandidateList":
+        if not 3 <= len(self.candidates) <= 5:
+            raise ValueError("theme candidates must contain 3 to 5 entries")
+        return self
+
+
 class SlideIR(BaseModel):
     index: int = Field(ge=1)
     type: Literal["cover", "agenda", "content", "transition", "closing", "freeform"]

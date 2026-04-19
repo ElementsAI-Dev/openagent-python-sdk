@@ -103,6 +103,42 @@ async def test_freeform_slide_uses_verbatim_js(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_loopback_to_slides_when_compile_fails(tmp_path, monkeypatch):
+    async def fake_invoke(params, context=None):
+        cmd = list(params.get("command", []))
+        # Fail only on `node compile.js`
+        if cmd and cmd[0] == "node":
+            return {"exit_code": 1, "stdout": "", "stderr": "boom"}
+        return {"exit_code": 0, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr(
+        "examples.pptx_generator.wizard.compile_qa.Wizard.select",
+        AsyncMock(return_value="go back to slides"),
+    )
+    step = CompileQAWizardStep(
+        shell_tool=SimpleNamespace(invoke=fake_invoke),
+        output_root=tmp_path,
+        templates_dir=Path("examples/pptx_generator/templates"),
+    )
+    project = _project(n=1)
+    project.slides = [
+        SlideIR(
+            index=1,
+            type="cover",
+            slots={"title": "T"},
+            generated_at=datetime.now(timezone.utc),
+        )
+    ]
+    project.outline.slides = [
+        SlideSpec(index=1, type="cover", title="T", key_points=[], sources_cited=[])
+    ]
+    result = await step.render(console=None, project=project)
+    assert result.status == "retry"
+    assert project.stage == "slides"
+
+
+@pytest.mark.asyncio
 async def test_runs_markitdown_when_available(tmp_path, monkeypatch):
     calls = []
 

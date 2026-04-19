@@ -156,8 +156,27 @@ pattern 层用的是 `FollowupFirstReActPattern`（`examples/research_analyst/ap
 
 - 安装：`uv add "io-openagent-sdk[pptx]"`
 - 运行：`pptx-agent new --topic "..."` 或 `pptx-agent resume <slug>`
-- 查看已保存的用户偏好：`pptx-agent memory`
-- 详细 CLI 说明：`docs/pptx-agent-cli.md`
+- 查看已保存的用户偏好：`pptx-agent memory list`
+- 删除偏好：`pptx-agent memory forget <id>`
+- 详细 CLI 说明：[`docs/pptx-agent-cli.md`](pptx-agent-cli.md)（[EN](pptx-agent-cli.en.md)）
+
+7 阶段的交互细节——意图逐字段编辑、大纲增删改重排、主题 3–5 候选图库 + 自定义编辑器、切片 schema 校验-重试 ≤2-fallback 到 freeform、跨会话偏好写回——详见 CLI 指南。
+
+**MCP 连接模式选型**：研究阶段一次 agent run 会对同一个 Tavily MCP server 发起多次工具调用。把 `mcp` 工具的 `config.connection_mode` 从默认的 `per_call` 改成 `pooled`，可以让 N 次调用只 fork 一次 node 子进程，大幅降低延迟与资源占用。对外部服务不稳定或经常崩溃的场景，仍然建议保持 `per_call` 以利用 cancel-scope 隔离。对应的 `connection_mode: "pooled"` 示例：
+
+```json
+{
+  "id": "tavily_mcp",
+  "type": "mcp",
+  "config": {
+    "server": {"command": "npx", "args": ["-y", "tavily-mcp"]},
+    "connection_mode": "pooled",
+    "probe_on_preflight": true
+  }
+}
+```
+
+开启 `probe_on_preflight` 后，`mcp` 未安装 / `npx` 不在 PATH / tavily-mcp 启动就崩溃等问题会在 agent 第一轮循环之前就被 runtime 翻译成 `stop_reason=failed` 的 `RunResult`，避免"LLM 先规划了再失败"的浪费。
 
 ## 继续阅读
 

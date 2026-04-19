@@ -1,13 +1,15 @@
-"""Stage 4 wizard step — outline."""
+"""Stage 4 wizard step — outline with add / remove / reorder / edit-per-slide."""
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 
-from openagents.cli.wizard import StepResult, Wizard
+from openagents.cli.wizard import StepResult
 
 from ..state import DeckProject, SlideOutline
+from ._editors import edit_outline
 
 
 @dataclass
@@ -17,35 +19,27 @@ class OutlineWizardStep:
     description: str = "Plan the slide-by-slide structure."
 
     async def render(self, console: Any, project: DeckProject) -> StepResult:
+        outline = await self._invoke_agent(project)
+        if console is not None:
+            with contextlib.suppress(Exception):
+                self._render_table(console, outline)
+
+        updated, action = await edit_outline(outline)
+        if action == "abort":
+            return StepResult(status="aborted")
+        if action == "regenerate":
+            return StepResult(status="retry")
+
+        project.outline = updated
+        project.stage = "theme"
+        return StepResult(status="completed", data=updated)
+
+    async def _invoke_agent(self, project: DeckProject) -> SlideOutline:
         result = await self.runtime.run(
             agent_id="outliner",
             session_id=project.slug,
             input_text="",
         )
-        outline = self._extract(result)
-
-        if console is not None:
-            try:
-                self._render_table(console, outline)
-            except Exception:
-                pass
-
-        action = await Wizard.select(
-            "Outline action?",
-            choices=["accept", "regenerate", "abort"],
-            default="accept",
-        )
-        if action == "regenerate":
-            return StepResult(status="retry")
-        if action == "abort":
-            return StepResult(status="aborted")
-
-        project.outline = outline
-        project.stage = "theme"
-        return StepResult(status="completed")
-
-    @staticmethod
-    def _extract(result: Any) -> SlideOutline:
         if isinstance(result, SlideOutline):
             return result
         parsed = getattr(result, "parsed", None)

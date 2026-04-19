@@ -9,7 +9,8 @@ the target via ``os.replace``. On failure between write and replace, the
 save — no cleanup loop is needed because paths are deterministic.
 
 Missing-file behavior: ``load_project`` lets ``FileNotFoundError`` propagate
-unchanged (distinct from corrupt JSON, which is wrapped as ``ValueError``).
+unchanged. Corrupt JSON or schema validation failures raise
+:class:`ProjectCorruptedError` so the CLI can offer restore/start-fresh UX.
 """
 
 from __future__ import annotations
@@ -19,7 +20,18 @@ import os
 import shutil
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from .state import DeckProject
+
+
+class ProjectCorruptedError(Exception):
+    """Raised when ``project.json`` cannot be parsed or does not validate."""
+
+    def __init__(self, path: Path, detail: str):
+        super().__init__(f"project.json at {path} is corrupt: {detail}")
+        self.path = path
+        self.detail = detail
 
 
 def project_path(slug: str, *, root: Path) -> Path:
@@ -35,8 +47,21 @@ def load_project(slug: str, *, root: Path) -> DeckProject:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise ValueError(f"project.json at {path} is corrupt: {exc}") from exc
-    return DeckProject.model_validate(data)
+        raise ProjectCorruptedError(path, f"invalid JSON: {exc}") from exc
+    try:
+        return DeckProject.model_validate(data)
+    except ValidationError as exc:
+        raise ProjectCorruptedError(path, f"schema validation failed: {exc}") from exc
+
+
+def restore_from_backup(slug: str, *, root: Path) -> DeckProject:
+    """Replace ``project.json`` with ``project.json.bak`` and load the result."""
+    bak = backup_path(slug, root=root)
+    if not bak.exists():
+        raise FileNotFoundError(f"no backup at {bak}")
+    target = project_path(slug, root=root)
+    shutil.copy2(bak, target)
+    return load_project(slug, root=root)
 
 
 def save_project(project: DeckProject, *, root: Path) -> Path:

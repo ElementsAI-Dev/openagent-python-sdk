@@ -60,12 +60,51 @@ async def test_runs_agent_and_keeps_all(monkeypatch):
         "examples.pptx_generator.wizard.research.Wizard.multi_select",
         AsyncMock(return_value=[]),
     )
+    monkeypatch.setattr(
+        "examples.pptx_generator.wizard.research.Wizard.confirm",
+        AsyncMock(return_value=False),
+    )
     step = ResearchWizardStep(runtime=runtime)
     project = _project(_intent(["q"]))
     result = await step.render(console=None, project=project)
     assert result.status == "completed"
     assert len(project.research.sources) == 2
     assert project.stage == "outline"
+
+
+@pytest.mark.asyncio
+async def test_captures_references_when_confirmed(monkeypatch):
+    findings = ResearchFindings(
+        queries_executed=["q"],
+        sources=[Source(url="https://a", title="A", snippet="sA")],
+        key_facts=[], caveats=[],
+    )
+    runtime = SimpleNamespace(run=AsyncMock(return_value=SimpleNamespace(
+        parsed=findings, state={},
+    )))
+    monkeypatch.setattr(
+        "examples.pptx_generator.wizard.research.Wizard.multi_select",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "examples.pptx_generator.wizard.research.Wizard.confirm",
+        AsyncMock(return_value=True),
+    )
+    captures: list[tuple[str, str, str]] = []
+
+    class FakeMem:
+        def __init__(self, config=None):
+            pass
+        def capture(self, category, rule, reason):
+            captures.append((category, rule, reason))
+            return "id"
+
+    monkeypatch.setattr(
+        "examples.pptx_generator.wizard.research.MarkdownMemory", FakeMem,
+    )
+    step = ResearchWizardStep(runtime=runtime)
+    await step.render(console=None, project=_project(_intent(["q"])))
+    assert captures and captures[0][0] == "references"
 
 
 @pytest.mark.asyncio
@@ -85,6 +124,10 @@ async def test_runs_agent_and_filters(monkeypatch):
     monkeypatch.setattr(
         "examples.pptx_generator.wizard.research.Wizard.multi_select",
         AsyncMock(return_value=["A"]),
+    )
+    monkeypatch.setattr(
+        "examples.pptx_generator.wizard.research.Wizard.confirm",
+        AsyncMock(return_value=False),
     )
     step = ResearchWizardStep(runtime=runtime)
     project = _project(_intent(["q"]))

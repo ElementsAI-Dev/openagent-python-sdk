@@ -1019,6 +1019,9 @@
 | `server.url` | `string` | 条件必填 | HTTP/SSE 模式：服务器端点 URL |
 | `server.headers` | `object` | 否 | HTTP/SSE 模式：请求头 |
 | `tools` | `array[string]` | 否 | 暴露的工具名白名单，空列表表示暴露服务器上的全部工具 |
+| `connection_mode` | `string` | 否 | `per_call`（默认）或 `pooled`，控制会话生命周期，详见下方 |
+| `probe_on_preflight` | `bool` | 否 | 默认 `false`；开启后 `preflight()` 会尝试连接服务器并调用一次 `list_tools` |
+| `dedup_inflight` | `bool` | 否 | 默认 `true`；在 `per_call` 模式下合并同 `(tool, arguments)` 的并发调用 |
 
 **调用参数**
 
@@ -1036,11 +1039,37 @@
 }
 ```
 
+**连接模式：per_call vs pooled**
+
+- `per_call`（默认）：每次 `invoke()` 都会打开并关闭一个全新的 stdio 子进程（或 SSE 会话）。好处是 anyio 的 cancel scope 始终绑定在单次调用内，子进程崩溃不会连带取消调用方后续的 `await`。代价是重量级服务器（如 node-based tavily-mcp）每次工具调用都要付一次进程启动成本。
+- `pooled`：首次调用时打开一个长生命周期的会话，后续所有调用复用它，通过内部 `asyncio.Lock` 串行化。N 次工具调用只开一次进程。**代价**：若池内子进程异常退出，残留的 cancel scope 可能泄漏到调用方。我们通过"死会话在下一次调用时才替换（而不是在失败的那次调用里）"来缓解这种泄漏，但仍然要求 agent 运行结束后主动调用 `close()` 排空池。当 runtime 在被意外 kill 时，`atexit` 钩子会尽力排空所有活动池，避免遗留孤儿进程。
+- 何时开启 `pooled`：ReAct 等循环里会对同一个 MCP 服务器连续发起很多次工具调用时；服务器启动成本很高时。
+- 何时保留默认 `per_call`：服务器本身不稳定、经常崩溃；或者你希望每次调用都有干净的 cancel scope 边界。
+
+**预启动检查（preflight）**
+
+`McpTool.preflight()` 在每个会话的第一个 agent turn 之前由运行时调用一次，用于尽早暴露配置错误：
+
+1. 检查 `mcp` Python SDK 是否可导入（未安装时抛 `PermanentToolError`，附带 `uv sync --extra mcp` 安装提示）；
+2. 校验 `server` 配置：stdio 模式用 `shutil.which` 检查 `command` 是否在 PATH 上；HTTP/SSE 模式用 `urllib.parse` 确认 URL 格式合法；
+3. 若 `probe_on_preflight=true`，额外打开一次临时连接调用 `list_tools` 验证服务器可达性（会产生一次额外的子进程 fork，默认关闭）。
+
+preflight 失败会让 `runtime.run()` 直接返回 `stop_reason=failed` 的 `RunResult`，错误消息里会带上失败工具的 `id`，不会进入 agent 循环。
+
+**事件**
+
+MCP 工具在配置了 event bus 的 `RunContext` 下会发射以下结构化事件，payload 仅包含工具 id、服务器标识、耗时和成功与否 —— 永远不会包含参数或工具返回值：
+
+- `tool.mcp.preflight`：preflight 结束（成功或失败）。
+- `tool.mcp.connect`：会话打开时。
+- `tool.mcp.call`：每次调用完成（含 `success` 和 `duration_ms`）。
+- `tool.mcp.close`：池化会话被 `close()` 排空时。
+
 **注意事项**
 
-- 连接在首次调用时建立，后续调用复用同一连接
-- 调用 `tools` 白名单之外的工具会抛出 `ValueError`
-- MCP 服务器断开时不会自动重连；需要重新初始化工具实例
+- `per_call` 模式下，连接随每次调用打开并关闭；`pooled` 模式下首次调用建立并复用。
+- 调用 `tools` 白名单之外的工具会抛出 `ValueError`。
+- `connection_mode="pooled"` 时务必在 runtime 关停时调用 `tool.close()`（或让 runtime 的 close 级联调用）排空会话；`atexit` 只是最后的兜底。
 
 ---
 

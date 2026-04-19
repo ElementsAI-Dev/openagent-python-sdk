@@ -26,11 +26,19 @@ async def test_end_to_end_all_stages_mocked(tmp_path, monkeypatch):
     monkeypatch.setenv("LLM_API_BASE", "https://fake")
     monkeypatch.setenv("LLM_MODEL", "fake-model")
 
-    # Mock every Wizard prompt to default accept path
+    # Mock every Wizard prompt to default accept path.
+    # `select` is choice-aware so stages with their own menu tokens
+    # (intent: "confirm", theme: "pick 1", slides: "continue") all flow through.
     from openagents.cli import wizard as wiz
 
-    monkeypatch.setattr(wiz.Wizard, "confirm", AsyncMock(return_value=True))
-    monkeypatch.setattr(wiz.Wizard, "select", AsyncMock(return_value="accept"))
+    async def smart_select(prompt, choices, default=None):
+        for preferred in ("confirm", "accept", "pick 1", "continue"):
+            if preferred in choices:
+                return preferred
+        return default or choices[0]
+
+    monkeypatch.setattr(wiz.Wizard, "confirm", AsyncMock(return_value=False))
+    monkeypatch.setattr(wiz.Wizard, "select", smart_select)
     monkeypatch.setattr(wiz.Wizard, "multi_select", AsyncMock(return_value=[]))
     monkeypatch.setattr(wiz.Wizard, "password", AsyncMock(return_value="sk-fake"))
     monkeypatch.setattr(wiz.Wizard, "text", AsyncMock(return_value=""))
@@ -51,6 +59,7 @@ async def test_end_to_end_all_stages_mocked(tmp_path, monkeypatch):
             SlideIR,
             SlideOutline,
             SlideSpec,
+            ThemeCandidateList,
             ThemeSelection,
         )
 
@@ -119,17 +128,30 @@ async def test_end_to_end_all_stages_mocked(tmp_path, monkeypatch):
                 style="sharp",
                 page_badge_style="circle",
             )
+            bundle = ThemeCandidateList(candidates=[theme, theme, theme])
             return SimpleNamespace(
-                parsed=theme, state={"theme": theme.model_dump(mode="json")}
+                parsed=bundle,
+                state={"theme_candidates": bundle.model_dump(mode="json")},
             )
         if agent_id == "slide-generator":
             payload = json.loads(input_text)
             i = payload["target_spec"]["index"]
+            slide_type = payload["target_spec"]["type"]
+            slots_by_type: dict[str, dict] = {
+                "cover": {"title": f"S{i}"},
+                "content": {
+                    "title": f"S{i}",
+                    "body_blocks": [{"kind": "bullets", "items": ["a"]}],
+                },
+                "closing": {"title": f"S{i}"},
+                "agenda": {"title": f"S{i}", "items": [{"label": "x"}]},
+                "transition": {"section_number": 1, "section_title": f"S{i}"},
+            }
             return SimpleNamespace(
                 parsed=SlideIR(
                     index=i,
-                    type=payload["target_spec"]["type"],
-                    slots={"title": f"S{i}"},
+                    type=slide_type,
+                    slots=slots_by_type.get(slide_type, {"title": f"S{i}"}),
                     generated_at=datetime.now(timezone.utc),
                 )
             )

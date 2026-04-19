@@ -153,8 +153,11 @@ Located at `examples/pptx_generator/`. 7-stage interactive wizard (intent → en
 
 - Install: `uv add "io-openagent-sdk[pptx]"`
 - Run: `pptx-agent new --topic "..."` or `pptx-agent resume <slug>`
-- View saved preferences: `pptx-agent memory`
-- CLI guide: `docs/pptx-agent-cli.en.md`
+- List saved preferences: `pptx-agent memory list`
+- Remove a preference: `pptx-agent memory forget <id>`
+- CLI guide: [`docs/pptx-agent-cli.en.md`](pptx-agent-cli.en.md) ([CN](pptx-agent-cli.md))
+
+Every stage is interactive: field-by-field intent editing, outline add/remove/reorder/edit, a 3–5 candidate theme gallery with a full custom editor, slide-generator schema validation with retry-and-fallback, and optional cross-session preference capture. See the CLI guide for the walk-through.
 
 ## Further Reading
 

@@ -43,6 +43,11 @@ tokenizers = [
 yaml = [
     "pyyaml>=6.0",
 ]
+cli = [
+    "io-openagent-sdk[rich,yaml]",
+    "questionary>=2.0.1",
+    "watchdog>=4",
+]
 pptx = [
     "io-openagent-sdk[rich,mcp]",
     "questionary>=2.0.1",
@@ -50,7 +55,7 @@ pptx = [
     "httpx>=0.27.0",
 ]
 all = [
-    "io-openagent-sdk[mcp,mem0,openai,otel,rich,sqlite,dev,tokenizers,yaml,pptx]",
+    "io-openagent-sdk[cli,mcp,mem0,openai,otel,rich,sqlite,dev,tokenizers,yaml,pptx]",
 ]
 
 [project.scripts]

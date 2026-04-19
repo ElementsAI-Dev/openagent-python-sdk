@@ -53,7 +53,6 @@ class MarkdownMemory(TypedConfigPluginMixin, MemoryPlugin):
                 "references",
             ]
         )
-        enable_remember_tool: bool = True
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(
@@ -73,10 +72,12 @@ class MarkdownMemory(TypedConfigPluginMixin, MemoryPlugin):
         section = category if category in self.cfg.sections else "user_feedback"
         entry_id = uuid.uuid4().hex[:8]
         timestamp = datetime.now(timezone.utc).isoformat()
+        rule_flat = rule.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+        reason_flat = (reason or "(no reason given)").replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
         block = (
             f"### {entry_id} · {timestamp}\n"
-            f"**Rule:** {rule}\n"
-            f"**Why:** {reason or '(no reason given)'}\n\n"
+            f"**Rule:** {rule_flat}\n"
+            f"**Why:** {reason_flat}\n\n"
         )
         path = self._dir / f"{section}.md"
         with path.open("a", encoding="utf-8") as fh:

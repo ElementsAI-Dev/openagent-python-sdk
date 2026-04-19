@@ -204,6 +204,17 @@ class ToolPlugin(BasePlugin):
         """Get list of tool IDs this tool depends on."""
         return []
 
+    async def preflight(self, context: "RunContext[Any] | None") -> None:
+        """Optional one-shot validation before the first tool call of a run.
+
+        Overridden by tools with external dependencies (e.g. MCP servers,
+        subprocess-backed tools) to check install / reachability up front
+        and surface a ``PermanentToolError`` with a helpful hint before the
+        agent loop runs, instead of mid-step. Default is a no-op so
+        existing tools keep working unchanged.
+        """
+        return None
+
     async def fallback(
         self,
         error: Exception,

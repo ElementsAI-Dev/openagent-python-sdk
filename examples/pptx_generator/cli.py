@@ -14,7 +14,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 try:
     from dotenv import load_dotenv as _load_dotenv
@@ -33,7 +33,13 @@ from openagents.utils.env_doctor import (
     PythonVersionCheck,
 )
 
-from .persistence import load_project, save_project
+from .persistence import (
+    ProjectCorruptedError,
+    backup_path,
+    load_project,
+    restore_from_backup,
+    save_project,
+)
 from .state import DeckProject
 from .wizard.compile_qa import CompileQAWizardStep
 from .wizard.env import EnvDoctorWizardStep
@@ -58,11 +64,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume = sub.add_parser("resume", help="resume an existing deck by slug")
     p_resume.add_argument("slug")
 
-    p_memory = sub.add_parser("memory", help="list persisted memory entries")
-    p_memory.add_argument(
+    p_memory = sub.add_parser("memory", help="inspect or manage persisted memory entries")
+    mem_sub = p_memory.add_subparsers(dest="memory_cmd")
+    p_mem_list = mem_sub.add_parser("list", help="list persisted memory entries (default)")
+    p_mem_list.add_argument(
         "--section",
         default=None,
         help="limit to a specific section (user_goals|user_feedback|decisions|references)",
+    )
+    p_mem_forget = mem_sub.add_parser("forget", help="remove a memory entry by id")
+    p_mem_forget.add_argument("entry_id")
+    # Back-compat: `pptx-agent memory --section X` without the subcommand still lists
+    p_memory.add_argument(
+        "--section",
+        default=None,
+        help="limit list to a specific section (deprecated: use `memory list --section`)",
     )
     return parser
 
@@ -191,10 +207,17 @@ async def run_wizard(
     ]
 
     wizard = Wizard(steps=steps, project=project)
-    if resume:
-        outcome = await wizard.resume(from_step=project.stage)
-    else:
-        outcome = await wizard.run()
+    try:
+        if resume:
+            outcome = await wizard.resume(from_step=project.stage)
+        else:
+            outcome = await wizard.run()
+    except KeyboardInterrupt:
+        save_project(project, root=outputs)
+        print(
+            f"\ninterrupted; state saved. resume with: pptx-agent resume {project.slug}",
+        )
+        return 130
     save_project(project, root=outputs)
     return 0 if outcome == "completed" else 1
 
@@ -212,19 +235,77 @@ async def main(argv: Sequence[str] | None = None) -> int:
         save_project(project, root=outputs_root())
         return await run_wizard(project, topic=args.topic)
     if args.command == "resume":
-        project = load_project(args.slug, root=outputs_root())
+        project = _load_or_restore(args.slug)
+        if project is None:
+            return 1
         return await run_wizard(project, resume=True)
     if args.command == "memory":
-        from openagents.plugins.builtin.memory.markdown_memory import MarkdownMemory
-
-        mem = MarkdownMemory(config={"memory_dir": "~/.config/pptx-agent/memory"})
-        sections = [args.section] if args.section else mem.cfg.sections
-        for s in sections:
-            print(f"## {s}")
-            for e in mem.list_entries(s):
-                print(f"- [{e['id']}] {e['rule']}  — {e['reason']}")
-        return 0
+        return _dispatch_memory(args)
     return 1
+
+
+def _load_or_restore(slug: str) -> DeckProject | None:
+    try:
+        return load_project(slug, root=outputs_root())
+    except FileNotFoundError:
+        print(f"no project found for slug: {slug}", file=sys.stderr)
+        return None
+    except ProjectCorruptedError as exc:
+        print(f"project.json is corrupt: {exc.detail}", file=sys.stderr)
+        return _interactive_restore(slug)
+
+
+def _interactive_restore(slug: str) -> DeckProject | None:
+    root = outputs_root()
+    backup = backup_path(slug, root=root)
+    if not backup.exists():
+        print(
+            "no backup available; delete the project directory and run `pptx-agent new`.",
+            file=sys.stderr,
+        )
+        return None
+    print(
+        f"\nbackup available at {backup}. choose:\n"
+        f"  1) restore from backup\n"
+        f"  2) start fresh (delete project.json)\n"
+        f"  3) abort\n",
+        file=sys.stderr,
+    )
+    try:
+        choice = input("selection [1/2/3]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if choice == "1":
+        return restore_from_backup(slug, root=root)
+    if choice == "2":
+        from pathlib import Path as _P
+
+        _P(root / slug / "project.json").unlink(missing_ok=True)
+        print("project.json deleted; rerun `pptx-agent new` to start fresh.", file=sys.stderr)
+        return None
+    return None
+
+
+def _dispatch_memory(args: Any) -> int:
+    from openagents.plugins.builtin.memory.markdown_memory import MarkdownMemory
+
+    mem = MarkdownMemory(config={"memory_dir": "~/.config/pptx-agent/memory"})
+    sub_cmd = getattr(args, "memory_cmd", None)
+    if sub_cmd == "forget":
+        ok = mem.forget(args.entry_id)
+        if ok:
+            print(f"forgot {args.entry_id}")
+            return 0
+        print(f"entry not found: {args.entry_id}", file=sys.stderr)
+        return 1
+    # default: list (explicit `list` or back-compat `memory --section`)
+    section = getattr(args, "section", None)
+    sections = [section] if section else mem.cfg.sections
+    for s in sections:
+        print(f"## {s}")
+        for e in mem.list_entries(s):
+            print(f"- [{e['id']}] {e['rule']}  — {e['reason']}")
+    return 0
 
 
 def main_sync() -> int:

@@ -23,7 +23,16 @@ from pydantic import ValidationError
 from openagents.interfaces.capabilities import PATTERN_EXECUTE
 from openagents.interfaces.pattern import PatternPlugin
 
-from ..state import FontPairing, IntentReport, Palette, ResearchFindings, SlideIR, SlideOutline, ThemeSelection
+from ..state import (
+    FontPairing,
+    IntentReport,
+    Palette,
+    ResearchFindings,
+    SlideIR,
+    SlideOutline,
+    ThemeCandidateList,
+    ThemeSelection,
+)
 
 _INTENT_SYSTEM = """You are a presentation planning assistant.
 Extract an IntentReport as JSON only. Required fields:
@@ -274,10 +283,12 @@ from .catalog import FONT_PAIRINGS, PALETTES  # noqa: E402
 from .slot_schemas import SLOT_MODELS  # noqa: E402
 
 _THEME_SYSTEM = """Given an IntentReport and the catalogs of PALETTES and FONT_PAIRINGS
-(each has a unique 'name'), select exactly one palette_name and one font_pairing_name
-that best fit the tone/language. Also pick style (sharp|soft|rounded|pill) and
-page_badge_style (circle|pill). Output JSON with keys: palette_name, font_pairing_name,
-style, page_badge_style. Output JSON only, no markdown fencing."""
+(each has a unique 'name'), propose a list of 3 to 5 distinct theme candidates
+that each fit the tone/language. Each candidate picks one palette_name and one
+font_pairing_name from the catalogs, plus a style (sharp|soft|rounded|pill) and
+page_badge_style (circle|pill). Return JSON of the form
+{"candidates": [{"palette_name": ..., "font_pairing_name": ..., "style": ..., "page_badge_style": ...}, ...]}
+with 3 to 5 entries. No markdown fencing."""
 
 
 def _try_parse_json_dict(raw: str) -> dict[str, Any] | None:
@@ -290,13 +301,13 @@ def _try_parse_json_dict(raw: str) -> dict[str, Any] | None:
 
 
 class ThemePattern(PatternPlugin):
-    """Stage 5: pick palette + fonts + style from the built-in catalog."""
+    """Stage 5: propose 3-5 theme candidates drawn from the built-in catalog."""
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config=config or {}, capabilities={PATTERN_EXECUTE})
         self.max_steps = int((config or {}).get("max_steps", 2))
 
-    async def execute(self) -> ThemeSelection:
+    async def execute(self) -> ThemeCandidateList:
         ctx = self.context
         if ctx is None:
             raise RuntimeError("ThemePattern.context is not set")
@@ -318,31 +329,48 @@ class ThemePattern(PatternPlugin):
             ]
             raw = await ctx.llm_client.complete(messages=messages)
             last_raw = str(raw or "")
-            choice = _try_parse_json_dict(last_raw)
-            if choice is None:
-                user_content = user_content + f"\n\nPrevious output not JSON:\n{last_raw}\nRetry."
-                continue
-            pal = next((p for p in PALETTES if p["name"] == choice.get("palette_name")), None)
-            font = next((f for f in FONT_PAIRINGS if f["name"] == choice.get("font_pairing_name")), None)
-            if not pal or not font:
+            parsed = _try_parse_json_dict(last_raw)
+            entries = parsed.get("candidates") if parsed else None
+            if not isinstance(entries, list):
                 user_content = user_content + (
-                    f"\n\nUnknown palette_name or font_pairing_name in:\n{last_raw}\n"
-                    f"Valid palette names: {[p['name'] for p in PALETTES]}; "
-                    f"valid font pairing names: {[f['name'] for f in FONT_PAIRINGS]}. Retry."
+                    f"\n\nPrevious output lacked a 'candidates' list:\n{last_raw}\nRetry."
                 )
                 continue
+            candidates: list[ThemeSelection] = []
+            failures: list[str] = []
+            for choice in entries:
+                if not isinstance(choice, dict):
+                    failures.append("entry is not an object")
+                    continue
+                pal = next((p for p in PALETTES if p["name"] == choice.get("palette_name")), None)
+                font = next((f for f in FONT_PAIRINGS if f["name"] == choice.get("font_pairing_name")), None)
+                if not pal or not font:
+                    failures.append(f"unknown palette/font in {choice!r}")
+                    continue
+                try:
+                    candidates.append(
+                        ThemeSelection(
+                            palette=Palette(**pal["palette"]),
+                            fonts=FontPairing(heading=font["heading"], body=font["body"], cjk=font["cjk"]),
+                            style=choice.get("style", "soft"),
+                            page_badge_style=choice.get("page_badge_style", "circle"),
+                        )
+                    )
+                except ValidationError as exc:
+                    failures.append(str(exc))
             try:
-                theme = ThemeSelection(
-                    palette=Palette(**pal["palette"]),
-                    fonts=FontPairing(heading=font["heading"], body=font["body"], cjk=font["cjk"]),
-                    style=choice.get("style", "soft"),
-                    page_badge_style=choice.get("page_badge_style", "circle"),
-                )
+                bundle = ThemeCandidateList(candidates=candidates)
             except ValidationError as exc:
-                user_content = user_content + f"\n\nSchema invalid: {exc.errors()}\nRetry."
+                user_content = user_content + (
+                    f"\n\nCandidate bundle invalid ({exc}). Previous attempt yielded "
+                    f"{len(candidates)} candidates with failures: {failures}. "
+                    f"Valid palette names: {[p['name'] for p in PALETTES]}; "
+                    f"valid font pairing names: {[f['name'] for f in FONT_PAIRINGS]}. "
+                    "Return 3 to 5 candidates."
+                )
                 continue
-            ctx.state["theme"] = theme.model_dump(mode="json")
-            return theme
+            ctx.state["theme_candidates"] = bundle.model_dump(mode="json")
+            return bundle
         raise RuntimeError(
             f"ThemePattern exhausted {self.max_steps} retries; last raw: {last_raw[:200]}"
         )

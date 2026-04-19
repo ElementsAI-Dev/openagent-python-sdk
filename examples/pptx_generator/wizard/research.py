@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 
 from openagents.cli.wizard import StepResult, Wizard
+from openagents.plugins.builtin.memory.markdown_memory import MarkdownMemory
 
 from ..state import DeckProject, ResearchFindings
 
@@ -31,10 +33,8 @@ class ResearchWizardStep:
         findings = self._extract_findings(result)
 
         if console is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._render_tree(console, findings)
-            except Exception:
-                pass
 
         if findings.sources:
             chosen = await Wizard.multi_select(
@@ -50,7 +50,29 @@ class ResearchWizardStep:
 
         project.research = findings
         project.stage = "outline"
+        await self._maybe_capture_memory(findings)
         return StepResult(status="completed")
+
+    @staticmethod
+    async def _maybe_capture_memory(findings: ResearchFindings) -> None:
+        if not findings.sources:
+            return
+        save = await Wizard.confirm(
+            "Save these sources as research references?", default=False
+        )
+        if not save:
+            return
+        try:
+            mem = MarkdownMemory(config={"memory_dir": "~/.config/pptx-agent/memory"})
+            top = findings.sources[:3]
+            rule = "; ".join(f"{s.title} — {s.url}" for s in top)
+            mem.capture(
+                category="references",
+                rule=rule,
+                reason="confirmed at research stage",
+            )
+        except Exception:
+            pass
 
     @staticmethod
     def _extract_findings(result: Any) -> ResearchFindings:

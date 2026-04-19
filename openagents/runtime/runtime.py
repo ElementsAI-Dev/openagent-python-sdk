@@ -27,19 +27,19 @@ class Runtime:
     """Main runtime entrypoint.
 
     Delegates to pluggable runtime/session/events/skills components loaded
-    from config. When ``config`` is omitted (or fields within it are
-    omitted), pydantic schema defaults fill in the builtin references
-    (``default``/``in_memory``/``async``/``local``) and the plugin loader
-    resolves them uniformly — there is no separate "defaults" path.
+    from config. When any of the top-level ``runtime``/``session``/
+    ``events``/``skills`` fields is omitted from the config, pydantic
+    schema defaults fill in the builtin references (``default``/
+    ``in_memory``/``async``/``local``) and the plugin loader resolves them
+    uniformly — there is no separate "defaults" path.
     """
 
     def __init__(
         self,
-        config: AppConfig | None = None,
+        config: AppConfig,
         *,
         _config_path: Path | None = None,
     ):
-        config = config if config is not None else AppConfig()
         self._config = config
         self._config_path = _config_path
         self._agents_by_id: dict[str, AgentDefinition] = {a.id: a for a in config.agents}

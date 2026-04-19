@@ -1,5 +1,6 @@
 """Tests for Runtime core functionality."""
 
+
 import pytest
 
 import openagents.llm.registry as llm_registry
@@ -43,18 +44,6 @@ async def test_runtime_init_loads_builtin_components():
     assert runtime.event_bus is not None
     assert runtime.session_manager is not None
     assert runtime.skills_manager is not None
-    await runtime.close()
-
-
-@pytest.mark.asyncio
-async def test_runtime_zero_arg_construction_uses_defaults():
-    """``Runtime()`` with no config produces a working, agent-less runtime."""
-    runtime = Runtime()
-
-    assert runtime.event_bus is not None
-    assert runtime.session_manager is not None
-    assert runtime.skills_manager is not None
-    assert await runtime.list_agents() == []
     await runtime.close()
 
 
@@ -480,6 +469,104 @@ class _UsageReportingClient(LLMClient):
             output_text='{"type":"final","content":"usage-aware"}',
             usage=LLMUsage(input_tokens=8, output_tokens=4, total_tokens=12),
         )
+
+
+def _preflight_agent_config(tool_impl_path: str, tool_id: str) -> AppConfig:
+    from openagents.config.schema import (
+        AgentDefinition,
+        LLMOptions,
+        MemoryRef,
+        PatternRef,
+        RuntimeOptions,
+        ToolRef,
+    )
+
+    agent = AgentDefinition(
+        id="preflight_agent",
+        name="Preflight Agent",
+        memory=MemoryRef(
+            impl="openagents.plugins.builtin.memory.buffer.BufferMemory",
+            on_error="continue",
+        ),
+        pattern=PatternRef(impl="openagents.plugins.builtin.pattern.react.ReActPattern"),
+        llm=LLMOptions(provider="mock"),
+        tools=[ToolRef(id=tool_id, impl=tool_impl_path)],
+        runtime=RuntimeOptions(max_steps=3, step_timeout_ms=1000),
+    )
+    return AppConfig(agents=[agent])
+
+
+@pytest.mark.asyncio
+async def test_preflight_failure_maps_to_failed_run_result():
+    """A tool whose preflight raises PermanentToolError turns into a
+    RunResult with stop_reason=FAILED; the pattern loop does not run."""
+    config = _preflight_agent_config(
+        "tests.fixtures.preflight_tools.FailingPreflightTool",
+        "failing_preflight_tool",
+    )
+    runtime = Runtime(config)
+
+    result = await runtime.run_detailed(
+        request=RunRequest(
+            agent_id="preflight_agent",
+            session_id="preflight-session",
+            input_text="hello",
+        )
+    )
+
+    assert result.stop_reason == "failed"
+    assert result.final_output is None
+    assert "failing_preflight_tool" in (result.error or "")
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_preflight_runs_once_per_session_for_tool_with_override():
+    """Preflight fires once per session when the tool overrides the hook."""
+    from tests.fixtures import preflight_tools
+
+    preflight_tools.reset()
+    config = _preflight_agent_config(
+        "tests.fixtures.preflight_tools.RecordingPreflightTool",
+        "recording_preflight_tool",
+    )
+    runtime = Runtime(config)
+
+    result = await runtime.run_detailed(
+        request=RunRequest(
+            agent_id="preflight_agent",
+            session_id="noop-session",
+            input_text="hello",
+        )
+    )
+
+    assert result.stop_reason == "completed"
+    assert preflight_tools.PREFLIGHT_CALLS == ["recording_preflight_tool"]
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_preflight_default_no_op_does_not_break_runtime():
+    """A tool without a preflight override still runs through the runtime cleanly."""
+    config = _preflight_agent_config(
+        "tests.fixtures.preflight_tools.NoOverrideTool",
+        "no_override_tool",
+    )
+    runtime = Runtime(config)
+
+    result = await runtime.run_detailed(
+        request=RunRequest(
+            agent_id="preflight_agent",
+            session_id="noop2-session",
+            input_text="hello",
+        )
+    )
+
+    assert result.stop_reason == "completed"
+
+    await runtime.close()
 
 
 @pytest.mark.asyncio

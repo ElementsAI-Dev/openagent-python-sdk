@@ -102,3 +102,29 @@ def test_interrupt_behavior_block_waits_for_natural_completion():
         assert result.data == "finished"
 
     asyncio.run(run())
+
+
+def test_tool_raises_mid_execution_is_wrapped_as_tool_error():
+    """When the tool raises mid-execution, the outer except wraps in ToolError
+    even with cancel_event armed (but not set)."""
+    from openagents.errors.exceptions import ToolError
+
+    class _RaisingTool(ToolPlugin):
+        def __init__(self):
+            super().__init__(config={}, capabilities=set())
+
+        async def invoke(self, params, context):
+            await asyncio.sleep(0.01)
+            raise ValueError("tool-internal boom")
+
+    async def run():
+        tool = _RaisingTool()
+        executor = SafeToolExecutor(config={"default_timeout_ms": 5000})
+        ev = asyncio.Event()  # armed but never set
+        req = ToolExecutionRequest(tool_id="raiser", tool=tool, cancel_event=ev)
+        result = await executor.execute(req)
+        assert result.success is False
+        assert isinstance(result.exception, ToolError)
+        assert "boom" in (result.error or "")
+
+    asyncio.run(run())

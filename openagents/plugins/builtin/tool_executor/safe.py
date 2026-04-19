@@ -62,7 +62,7 @@ class SafeToolExecutor(TypedConfigPluginMixin, ToolExecutorPlugin):
         timeout_ms = request.execution_spec.default_timeout_ms or self._default_timeout_ms
         timeout_s = timeout_ms / 1000 if timeout_ms else None
         cancel_event = request.cancel_event
-        interrupt_behavior = (request.execution_spec.interrupt_behavior or "cancel").lower()
+        interrupt_behavior = str(request.execution_spec.interrupt_behavior or "cancel").lower()
 
         invoke_task = asyncio.create_task(
             request.tool.invoke(request.params or {}, request.context)
@@ -87,10 +87,11 @@ class SafeToolExecutor(TypedConfigPluginMixin, ToolExecutorPlugin):
                 if invoke_task in done:
                     for t in pending:
                         t.cancel()
+                    # Raises if invoke_task failed — caught below and wrapped in ToolError.
                     data = invoke_task.result()
                 elif cancel_task is not None and cancel_task in done:
                     if interrupt_behavior == "block":
-                        # Wait for natural completion; ignore cancel.
+                        # "block" mode trusts the tool to finish; both cancel AND timeout are ignored.
                         if timeout_task is not None:
                             timeout_task.cancel()
                         data = await invoke_task
@@ -101,9 +102,9 @@ class SafeToolExecutor(TypedConfigPluginMixin, ToolExecutorPlugin):
                         try:
                             await invoke_task
                         except asyncio.CancelledError:
-                            pass
+                            pass  # expected: we just cancelled it
                         except Exception:
-                            pass
+                            pass  # tool raised concurrently with cancel; cancel wins
                         cancelled_exc = ToolCancelledError(
                             f"Tool '{request.tool_id}' cancelled before completion",
                             tool_name=request.tool_id,
@@ -122,8 +123,10 @@ class SafeToolExecutor(TypedConfigPluginMixin, ToolExecutorPlugin):
                         cancel_task.cancel()
                     try:
                         await invoke_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
+                    except asyncio.CancelledError:
+                        pass  # expected: we just cancelled it
+                    except Exception:
+                        pass  # tool raised concurrently with timeout; timeout wins
                     timeout_exc = ToolTimeoutError(
                         f"Tool '{request.tool_id}' timed out after {timeout_ms}ms",
                         tool_name=request.tool_id,

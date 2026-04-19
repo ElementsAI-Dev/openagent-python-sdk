@@ -908,3 +908,32 @@ async def test_invoke_preserves_multichild_exceptiongroup():
         with pytest.raises(BaseExceptionGroup) as exc_info:
             await tool.invoke({"tool": "ping", "arguments": {}}, context=None)
         assert len(exc_info.value.exceptions) == 2
+
+
+def test_mcp_tool_invoke_batch_reuses_pooled_session(monkeypatch):
+    import asyncio
+    from openagents.interfaces.tool import BatchItem
+    from openagents.plugins.builtin.tool.mcp_tool import McpTool
+
+    tool = McpTool(config={"server": {"command": "echo"}, "connection_mode": "pooled"})
+
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_call(tool_name, arguments):
+        calls.append((tool_name, arguments))
+        return {"content": [f"ok {arguments}"], "isError": False}
+
+    tool._strategy.call = fake_call  # type: ignore[attr-defined]
+
+    async def run():
+        items = [
+            BatchItem(params={"tool": "echo", "arguments": {"i": 1}}),
+            BatchItem(params={"tool": "echo", "arguments": {"i": 2}}),
+            BatchItem(params={"tool": "echo", "arguments": {"i": 3}}),
+        ]
+        results = await tool.invoke_batch(items, context=None)
+        assert len(results) == 3
+        assert all(r.success for r in results)
+        assert len(calls) == 3
+
+    asyncio.run(run())

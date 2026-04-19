@@ -492,6 +492,34 @@ class McpTool(TypedConfigPluginMixin, ToolPlugin):
             tool_count=tool_count,
         )
 
+    async def invoke_batch(self, items, context):
+        """MCP-aware batch — in pooled mode, reuse the single session across items.
+
+        In ``per_call`` mode we fall back to the default sequential behavior
+        (cancel-scope safety is more important than throughput). In ``pooled``
+        mode, all items share the long-lived session; each ``invoke`` still
+        goes through the pooled strategy's ``asyncio.Lock``.
+        """
+        from openagents.interfaces.tool import BatchResult
+
+        if self._connection_mode != "pooled":
+            return await super().invoke_batch(items, context)
+
+        results: list[BatchResult] = []
+        for item in items:
+            try:
+                data = await self.invoke(item.params, context)
+                results.append(BatchResult(item_id=item.item_id, success=True, data=data))
+            except Exception as exc:  # noqa: BLE001
+                results.append(
+                    BatchResult(
+                        item_id=item.item_id,
+                        success=False,
+                        error=str(exc),
+                    )
+                )
+        return results
+
     async def invoke(self, params: dict[str, Any], context: Any) -> Any:
         """Forward tool call to MCP server.
 

@@ -104,6 +104,55 @@ def test_interrupt_behavior_block_waits_for_natural_completion():
     asyncio.run(run())
 
 
+def test_cancel_event_is_injected_into_bound_tool_request():
+    """When ctx.scratch['__cancel_event__'] is populated, _BoundTool.invoke must
+    thread it into the ToolExecutionRequest so SafeToolExecutor can race on it."""
+    from openagents.plugins.builtin.runtime.default_runtime import _BoundTool
+    from openagents.interfaces.tool import ToolExecutionResult
+
+    class _CapturingExecutor:
+        def __init__(self):
+            self.captured: ToolExecutionRequest | None = None
+
+        async def execute(self, request):
+            self.captured = request
+            return ToolExecutionResult(tool_id=request.tool_id, success=True, data=None)
+
+        async def execute_stream(self, request):
+            yield {"type": "result"}
+
+        async def execute_batch(self, reqs):
+            return [await self.execute(r) for r in reqs]
+
+    class _NoopTool(ToolPlugin):
+        def __init__(self):
+            super().__init__(config={}, capabilities=set())
+
+        async def invoke(self, params, context):
+            return None
+
+    async def run():
+        tool = _NoopTool()
+        executor = _CapturingExecutor()
+        bound = _BoundTool(tool_id="n", tool=tool, executor=executor)
+
+        class _CtxWithEvent:
+            def __init__(self):
+                self.scratch = {"__cancel_event__": asyncio.Event()}
+                self.run_request = None
+                self.usage = None
+                self.agent_id = None
+                self.session_id = None
+                self.event_bus = None
+
+        ctx = _CtxWithEvent()
+        await bound.invoke({}, ctx)
+        assert executor.captured is not None
+        assert executor.captured.cancel_event is ctx.scratch["__cancel_event__"]
+
+    asyncio.run(run())
+
+
 def test_tool_raises_mid_execution_is_wrapped_as_tool_error():
     """When the tool raises mid-execution, the outer except wraps in ToolError
     even with cancel_event armed (but not set)."""

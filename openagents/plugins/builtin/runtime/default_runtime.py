@@ -595,6 +595,15 @@ class DefaultRuntime(TypedConfigPluginMixin, RuntimePlugin):
                     artifacts=artifacts,
                 )
 
+                # Seed a per-run cancel event so tools can race against external
+                # cancellation. External callers set the event to request cancel.
+                import asyncio as _asyncio
+                pattern_ctx = getattr(plugins.pattern, "context", None)
+                if pattern_ctx is not None and isinstance(
+                    getattr(pattern_ctx, "scratch", None), dict
+                ):
+                    pattern_ctx.scratch.setdefault("__cancel_event__", _asyncio.Event())
+
                 await self._event_bus.emit(
                     CONTEXT_CREATED,
                     agent_id=request.agent_id,

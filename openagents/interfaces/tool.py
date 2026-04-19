@@ -270,6 +270,113 @@ class ToolPlugin(BasePlugin):
         """Fallback handler when invoke fails."""
         raise error
 
+    async def invoke_batch(
+        self,
+        items: list[BatchItem],
+        context: "RunContext[Any] | None",
+    ) -> list[BatchResult]:
+        """Batched invocation. Default: sequential loop over ``invoke``.
+
+        Override when the tool can handle N items cheaper than N invokes
+        (MCP bulk calls, multi-file reads, pipelined HTTP).
+        Result list length and item_ids must match the input.
+        """
+        results: list[BatchResult] = []
+        for item in items:
+            try:
+                data = await self.invoke(item.params, context)
+                results.append(BatchResult(item_id=item.item_id, success=True, data=data))
+            except OpenAgentsError as exc:
+                results.append(
+                    BatchResult(
+                        item_id=item.item_id,
+                        success=False,
+                        error=str(exc),
+                        exception=exc,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                wrapped = ToolError(str(exc), tool_name=self.tool_name)
+                results.append(
+                    BatchResult(
+                        item_id=item.item_id,
+                        success=False,
+                        error=str(wrapped),
+                        exception=wrapped,
+                    )
+                )
+        return results
+
+    async def invoke_background(
+        self,
+        params: dict[str, Any],
+        context: "RunContext[Any] | None",
+    ) -> JobHandle:
+        """Submit a long-running job; return handle immediately. Default: NotImplementedError."""
+        raise NotImplementedError(
+            f"{self.tool_name} does not support background execution"
+        )
+
+    async def poll_job(
+        self,
+        handle: JobHandle,
+        context: "RunContext[Any] | None",
+    ) -> JobStatus:
+        """Query background job status. Default: NotImplementedError."""
+        raise NotImplementedError(
+            f"{self.tool_name} does not support background execution"
+        )
+
+    async def cancel_job(
+        self,
+        handle: JobHandle,
+        context: "RunContext[Any] | None",
+    ) -> bool:
+        """Cancel a background job. Return True if cancelled. Default: NotImplementedError."""
+        raise NotImplementedError(
+            f"{self.tool_name} does not support background execution"
+        )
+
+    def requires_approval(
+        self,
+        params: dict[str, Any],
+        context: "RunContext[Any] | None",
+    ) -> bool:
+        """Whether this call needs human approval before execution.
+
+        Default reads ``execution_spec().approval_mode``:
+          - "always"  -> True
+          - "never"   -> False
+          - "inherit" -> False (app layer decides elsewhere)
+        Override to decide per-parameters.
+        """
+        return self.execution_spec().approval_mode == "always"
+
+    async def before_invoke(
+        self,
+        params: dict[str, Any],
+        context: "RunContext[Any] | None",
+    ) -> None:
+        """Per-call pre-hook. Default no-op.
+
+        Distinct from ``preflight`` (run once per run). Use for token refresh,
+        per-call metrics, rate-limit token acquisition.
+        """
+        return None
+
+    async def after_invoke(
+        self,
+        params: dict[str, Any],
+        context: "RunContext[Any] | None",
+        result: Any,
+        exception: BaseException | None = None,
+    ) -> None:
+        """Per-call post-hook. Always runs (success or failure). Default no-op.
+
+        ``result`` is None on failure; ``exception`` is set on failure.
+        """
+        return None
+
 
 if not TYPE_CHECKING:
     ToolExecutionRequest.model_rebuild()

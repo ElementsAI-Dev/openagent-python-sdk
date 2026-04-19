@@ -153,11 +153,15 @@ Runtime.from_config("agent.json")      # 完整 JSON
 
 ### `await runtime.close_session(session_id: str) -> None`
 
-关闭一个 session 的插件 bundle。
+关闭一个 session 的插件 bundle。也会级联调用 `release_session(session_id)` 释放 runtime 级共享资源（如 MCP session pool）。
+
+### `await runtime.release_session(session_id: str) -> None`
+
+释放 runtime 自身持有、与 `session_id` 挂钩的共享资源（当前：`DefaultRuntime` 的 MCP 会话池共享连接），不动 session 的 agent plugin bundle。幂等，未使用过的 `session_id` 也安全调用。
 
 ### `await runtime.close() -> None`
 
-关闭 runtime 及可关闭的下游资源。
+关闭 runtime 及可关闭的下游资源。对 `DefaultRuntime`，会级联排空所有 MCP session pool。
 
 ### `runtime.event_bus`
 

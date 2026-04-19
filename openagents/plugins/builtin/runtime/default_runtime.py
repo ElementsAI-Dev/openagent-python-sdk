@@ -12,7 +12,7 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from openagents.config.schema import AgentDefinition, AppConfig
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from openagents.errors.exceptions import (
     BudgetExhausted,
@@ -457,9 +457,23 @@ class DefaultRuntime(TypedConfigPluginMixin, RuntimePlugin):
           plugins
     """
 
+    class McpRuntimeConfig(BaseModel):
+        """Runtime-wide knobs for the shared MCP session pool (Phase 2/3).
+
+        All fields are optional; defaults preserve today's behaviour
+        (no cross-run pool, no eviction).
+        """
+
+        max_pooled_sessions: int | None = None
+        max_idle_seconds: float | None = None
+        preflight_cache_success_ttl: float | None = None
+
     class Config(BaseModel):
         tool_executor: dict[str, Any] | None = None
         context_assembler: dict[str, Any] | None = None
+        mcp: "DefaultRuntime.McpRuntimeConfig" = Field(
+            default_factory=lambda: DefaultRuntime.McpRuntimeConfig()
+        )
 
     def __init__(
         self,
@@ -475,6 +489,12 @@ class DefaultRuntime(TypedConfigPluginMixin, RuntimePlugin):
         self._llm_clients: dict[str, Any | None] = {}
         self._tool_executor: ToolExecutor | None = None
         self._context_assembler: ContextAssemblerPlugin | None = None
+        from ._mcp_coordinator import _McpSessionCoordinator
+        mcp_cfg = self.cfg.mcp
+        self._mcp_coordinator = _McpSessionCoordinator(
+            max_pooled_sessions=mcp_cfg.max_pooled_sessions,
+            max_idle_seconds=mcp_cfg.max_idle_seconds,
+        )
 
     @property
     def event_bus(self) -> EventBusPlugin:
@@ -575,9 +595,18 @@ class DefaultRuntime(TypedConfigPluginMixin, RuntimePlugin):
                 self._apply_runtime_budget(pattern=plugins.pattern, agent=agent)
                 bound_tools = self._bind_tools(plugins.tools, tool_executor)
 
+                mcp_pool = await self._mcp_coordinator.get_or_create(
+                    request.session_id
+                )
+
                 await self._run_tool_preflight(
                     tools=plugins.tools,
                     request=request,
+                    mcp_pool=mcp_pool,
+                )
+
+                await self._mcp_coordinator.warmup_eager(
+                    mcp_pool, plugins.tools.values()
                 )
 
                 await self._setup_pattern(
@@ -603,6 +632,7 @@ class DefaultRuntime(TypedConfigPluginMixin, RuntimePlugin):
                     getattr(pattern_ctx, "scratch", None), dict
                 ):
                     pattern_ctx.scratch.setdefault("__cancel_event__", _asyncio.Event())
+                    pattern_ctx.scratch["__mcp_session_pool__"] = mcp_pool
 
                 await self._event_bus.emit(
                     CONTEXT_CREATED,
@@ -873,51 +903,65 @@ class DefaultRuntime(TypedConfigPluginMixin, RuntimePlugin):
         *,
         tools: dict[str, Any],
         request: RunRequest,
+        mcp_pool: Any,
     ) -> None:
         for tool_id, tool in tools.items():
             preflight = getattr(tool, "preflight", None)
             if not callable(preflight):
                 continue
             started = time.perf_counter()
-            try:
-                await preflight(None)
-            except PermanentToolError as exc:
-                msg = str(exc.args[0]) if exc.args else ""
-                if f"[tool:{tool_id}]" not in msg:
-                    prefixed = PermanentToolError(
-                        f"[tool:{tool_id}] {msg}" if msg else f"[tool:{tool_id}] preflight failed",
-                        tool_name=tool_id,
-                        hint=exc.hint,
-                        docs_url=exc.docs_url,
+            cached_hit, exc = await self._mcp_coordinator.preflight_with_dedup(
+                mcp_pool, tool, tool_id
+            )
+            if exc is not None:
+                if isinstance(exc, PermanentToolError):
+                    propagate = self._prefix_permanent_tool_error(
+                        exc, tool_id=tool_id, request=request
                     )
-                    prefixed.with_context(
-                        agent_id=request.agent_id,
-                        session_id=request.session_id,
-                        run_id=request.run_id,
+                    await self._event_bus.emit(
+                        "tool.preflight",
+                        tool_id=tool_id,
+                        result="error",
+                        error=str(propagate),
+                        duration_ms=int((time.perf_counter() - started) * 1000),
                     )
-                    propagate: PermanentToolError = prefixed
-                else:
-                    exc.tool_id = exc.tool_id or tool_id
-                    exc.with_context(
-                        agent_id=request.agent_id,
-                        session_id=request.session_id,
-                        run_id=request.run_id,
-                    )
-                    propagate = exc
-                await self._event_bus.emit(
-                    "tool.preflight",
-                    tool_id=tool_id,
-                    result="error",
-                    error=str(propagate),
-                    duration_ms=int((time.perf_counter() - started) * 1000),
-                )
-                raise propagate from exc
+                    raise propagate from exc
+                raise exc
             await self._event_bus.emit(
                 "tool.preflight",
                 tool_id=tool_id,
-                result="ok",
+                result="cached-ok" if cached_hit else "ok",
                 duration_ms=int((time.perf_counter() - started) * 1000),
             )
+
+    def _prefix_permanent_tool_error(
+        self,
+        exc: PermanentToolError,
+        *,
+        tool_id: str,
+        request: RunRequest,
+    ) -> PermanentToolError:
+        msg = str(exc.args[0]) if exc.args else ""
+        if f"[tool:{tool_id}]" not in msg:
+            prefixed = PermanentToolError(
+                f"[tool:{tool_id}] {msg}" if msg else f"[tool:{tool_id}] preflight failed",
+                tool_name=tool_id,
+                hint=exc.hint,
+                docs_url=exc.docs_url,
+            )
+            prefixed.with_context(
+                agent_id=request.agent_id,
+                session_id=request.session_id,
+                run_id=request.run_id,
+            )
+            return prefixed
+        exc.tool_id = exc.tool_id or tool_id
+        exc.with_context(
+            agent_id=request.agent_id,
+            session_id=request.session_id,
+            run_id=request.run_id,
+        )
+        return exc
 
     def _enforce_duration_budget(self, *, request: RunRequest, started_at: float) -> None:
         budget = request.budget
@@ -1236,3 +1280,24 @@ class DefaultRuntime(TypedConfigPluginMixin, RuntimePlugin):
         self._llm_clients.clear()
         for client in clients:
             await self._close_llm_client(client)
+        await self._mcp_coordinator.close_all()
+
+    async def release_session(self, session_id: str) -> None:
+        """Drop the MCP session pool for ``session_id`` (closes shared conns).
+
+        Idempotent. Safe to call even if the session never held an MCP pool.
+        """
+        await self._mcp_coordinator.release_session(session_id)
+
+    async def invalidate_mcp_pools_for_agents(
+        self, agent_ids: set[str] | None = None
+    ) -> None:
+        """Drop every MCP session pool — used by ``Runtime.reload``.
+
+        Today we don't trace which tools sit under which session, so a
+        config reload that touches any agent drains every pool. Pools
+        are cheap to rebuild (next run re-warms); correctness trumps
+        retaining possibly-stale shared conns.
+        """
+        del agent_ids  # reserved for a future fine-grained invalidation pass
+        await self._mcp_coordinator.close_all()

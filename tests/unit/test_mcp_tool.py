@@ -919,7 +919,7 @@ def test_mcp_tool_invoke_batch_reuses_pooled_session(monkeypatch):
 
     calls: list[tuple[str, dict]] = []
 
-    async def fake_call(tool_name, arguments):
+    async def fake_call(tool_name, arguments, context=None):
         calls.append((tool_name, arguments))
         return {"content": [f"ok {arguments}"], "isError": False}
 
@@ -937,3 +937,272 @@ def test_mcp_tool_invoke_batch_reuses_pooled_session(monkeypatch):
         assert len(calls) == 3
 
     asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: config extensions — cwd, env_passthrough, init_timeout_ms, prelaunch
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_server_config_env_passthrough_default_preserves_behavior():
+    """Empty env_passthrough leaves env semantics identical to pre-Phase-1.
+
+    - env=None → resolved_stdio_env() returns None (MCP inherits full parent env)
+    - env={...} → resolved_stdio_env() returns the same dict (MCP replaces)
+    """
+    from openagents.plugins.builtin.tool.mcp_tool import McpServerConfig
+
+    assert McpServerConfig(command="x").resolved_stdio_env() is None
+    assert McpServerConfig(command="x", env={"A": "1"}).resolved_stdio_env() == {"A": "1"}
+
+
+def test_mcp_server_config_env_passthrough_materializes_from_parent(monkeypatch):
+    """A non-empty env_passthrough pulls listed parent vars into the effective env."""
+    from openagents.plugins.builtin.tool.mcp_tool import McpServerConfig
+
+    monkeypatch.setenv("MCP_PHASE1_VAR", "present")
+    monkeypatch.delenv("MCP_PHASE1_MISSING", raising=False)
+
+    cfg = McpServerConfig(
+        command="x",
+        env_passthrough=["MCP_PHASE1_VAR", "MCP_PHASE1_MISSING"],
+    )
+    # Missing parent vars are silently skipped; present ones are copied.
+    assert cfg.resolved_stdio_env() == {"MCP_PHASE1_VAR": "present"}
+
+
+def test_mcp_server_config_explicit_env_overrides_passthrough(monkeypatch):
+    """User-provided env wins on name collisions with env_passthrough."""
+    from openagents.plugins.builtin.tool.mcp_tool import McpServerConfig
+
+    monkeypatch.setenv("MCP_PHASE1_VAR", "from-parent")
+    cfg = McpServerConfig(
+        command="x",
+        env={"MCP_PHASE1_VAR": "override", "EXTRA": "bar"},
+        env_passthrough=["MCP_PHASE1_VAR"],
+    )
+    assert cfg.resolved_stdio_env() == {
+        "MCP_PHASE1_VAR": "override",
+        "EXTRA": "bar",
+    }
+
+
+@pytest.mark.asyncio
+async def test_mcp_connection_applies_cwd_and_resolved_env_to_stdio_params(monkeypatch):
+    """`cwd` and `resolved_stdio_env()` both flow into StdioServerParameters."""
+    from openagents.plugins.builtin.tool.mcp_tool import McpTool
+
+    monkeypatch.setenv("MCP_PHASE1_PASSED", "yes")
+    captured: dict[str, Any] = {}
+
+    class _SpyParams:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+    def _stdio_client(_params):
+        return _FakeStdioCM(log=[])
+
+    fake_mcp = type(
+        "fake_mcp",
+        (),
+        {
+            "ClientSession": lambda r, w: _FakeSession(
+                r,
+                w,
+                [],
+                call_result=type("R", (), {"content": [], "isError": False})(),
+            ),
+            "StdioServerParameters": _SpyParams,
+        },
+    )
+    fake_stdio = type("fake_stdio", (), {"stdio_client": _stdio_client})
+
+    with patch.dict("sys.modules", {"mcp": fake_mcp, "mcp.client.stdio": fake_stdio}):
+        tool = McpTool(
+            config={
+                "server": {
+                    "command": "echo",
+                    "cwd": "/srv/mcp",
+                    "env": {"OWN": "1"},
+                    "env_passthrough": ["MCP_PHASE1_PASSED"],
+                },
+            }
+        )
+        await tool.invoke({"tool": "ping", "arguments": {}}, context=None)
+
+    assert captured["command"] == "echo"
+    assert captured["cwd"] == "/srv/mcp"
+    # passthrough var copied AND explicit env merged — passthrough first, user overrides.
+    assert captured["env"] == {"MCP_PHASE1_PASSED": "yes", "OWN": "1"}
+
+
+@pytest.mark.asyncio
+async def test_mcp_connection_init_timeout_ms_raises_timeout_error():
+    """A slow initialize() hits init_timeout_ms → TimeoutError with server id."""
+    from openagents.plugins.builtin.tool.mcp_tool import McpTool
+
+    log: list[str] = []
+
+    class _SlowSession(_FakeSession):
+        async def initialize(self):
+            await asyncio.sleep(1.0)  # far longer than the 20ms timeout below.
+            self.initialized = True
+
+    def session_factory(reader, writer, **_kw):
+        return _SlowSession(
+            reader, writer, log,
+            call_result=type("R", (), {"content": [], "isError": False})(),
+        )
+
+    with _patch_mcp(log, session_factory=session_factory):
+        tool = McpTool(
+            config={
+                "server": {"command": "echo", "init_timeout_ms": 20},
+            }
+        )
+        with pytest.raises(TimeoutError, match="init_timeout_ms=20"):
+            await tool.invoke({"tool": "ping", "arguments": {}}, context=None)
+
+    # Init-failure path exits the stack with (None, None, None) by design
+    # to keep cancel-scope safety. What matters: both contexts actually exited.
+    assert log.count("stdio:enter") == 1
+    assert log.count("session:enter") == 1
+    assert any(line.startswith("session:exit") for line in log)
+    assert any(line.startswith("stdio:exit") for line in log)
+
+
+@pytest.mark.asyncio
+async def test_mcp_connection_init_timeout_none_does_not_wrap():
+    """With init_timeout_ms=None, initialize() runs unbounded (current behavior)."""
+    from openagents.plugins.builtin.tool.mcp_tool import McpTool
+
+    log: list[str] = []
+    result_obj = type("R", (), {"content": [], "isError": False})()
+
+    def session_factory(reader, writer, **_kw):
+        return _FakeSession(reader, writer, log, call_result=result_obj)
+
+    with _patch_mcp(log, session_factory=session_factory):
+        tool = McpTool(config={"server": {"command": "echo"}})
+        out = await tool.invoke({"tool": "ping", "arguments": {}}, context=None)
+        assert out == {"content": [], "isError": False}
+
+
+def test_mcp_tool_prelaunch_requires_pooled_mode():
+    """`prelaunch=eager` with `connection_mode=per_call` is rejected at init."""
+    from openagents.errors.exceptions import ConfigError
+    from openagents.plugins.builtin.tool.mcp_tool import McpTool
+
+    with pytest.raises(ConfigError, match='connection_mode="pooled"'):
+        McpTool(config={"server": {"command": "echo"}, "prelaunch": "eager"})
+
+
+def test_mcp_tool_prelaunch_eager_with_pooled_mode_is_accepted():
+    from openagents.plugins.builtin.tool.mcp_tool import McpTool
+
+    tool = McpTool(
+        config={
+            "server": {"command": "echo"},
+            "connection_mode": "pooled",
+            "prelaunch": "eager",
+        }
+    )
+    assert tool._prelaunch == "eager"
+    assert tool._connection_mode == "pooled"
+
+
+def test_mcp_tool_rejects_bad_env_passthrough_type():
+    from openagents.errors.exceptions import ConfigError
+    from openagents.plugins.builtin.tool.mcp_tool import McpTool
+
+    with pytest.raises(ConfigError, match="env_passthrough"):
+        McpTool(config={"server": {"command": "echo", "env_passthrough": "PATH"}})
+    with pytest.raises(ConfigError, match="env_passthrough"):
+        McpTool(config={"server": {"command": "echo", "env_passthrough": [""]}})
+
+
+def test_mcp_tool_rejects_non_positive_init_timeout_ms():
+    from openagents.errors.exceptions import ConfigError
+    from openagents.plugins.builtin.tool.mcp_tool import McpTool
+
+    with pytest.raises(ConfigError, match="positive integer"):
+        McpTool(config={"server": {"command": "echo", "init_timeout_ms": 0}})
+    with pytest.raises(ConfigError, match="positive integer"):
+        McpTool(config={"server": {"command": "echo", "init_timeout_ms": -10}})
+
+
+def test_config_env_var_interpolation_flows_into_mcp_server(tmp_path, monkeypatch):
+    """The existing `${VAR}` expansion in loader.py also covers MCP server fields.
+
+    No new code in this SDK for Q4.4 — this regression test pins the behaviour
+    so future loader refactors don't drop MCP configs on the floor.
+    """
+    import json
+
+    from openagents.config.loader import load_config
+
+    monkeypatch.setenv("MY_MCP_TOKEN", "secret-token-abc")
+    monkeypatch.setenv("MY_MCP_HOME", "/srv/mcp-root")
+
+    config_path = tmp_path / "app.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "agents": [
+                    {
+                        "id": "a",
+                        "name": "a",
+                        "memory": {"type": "noop"},
+                        "pattern": {"type": "react"},
+                        "tools": [
+                            {
+                                "id": "mcp_demo",
+                                "type": "mcp",
+                                "config": {
+                                    "server": {
+                                        "command": "python",
+                                        "args": ["${MY_MCP_HOME}/server.py"],
+                                        "env": {"TOKEN": "${MY_MCP_TOKEN}"},
+                                        "headers": {
+                                            "Authorization": "Bearer ${MY_MCP_TOKEN}"
+                                        },
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    config = load_config(config_path)
+    tool_cfg = config.agents[0].tools[0].config
+    assert tool_cfg["server"]["args"] == ["/srv/mcp-root/server.py"]
+    assert tool_cfg["server"]["env"] == {"TOKEN": "secret-token-abc"}
+    assert tool_cfg["server"]["headers"] == {
+        "Authorization": "Bearer secret-token-abc"
+    }
+
+
+def test_default_runtime_accepts_mcp_config_block():
+    """`runtime.config.mcp` parses and exposes the three new knobs."""
+    from openagents.plugins.builtin.runtime.default_runtime import DefaultRuntime
+
+    r = DefaultRuntime(
+        config={
+            "mcp": {
+                "max_pooled_sessions": 4,
+                "max_idle_seconds": 60.0,
+                "preflight_cache_success_ttl": 120.0,
+            }
+        }
+    )
+    assert r.cfg.mcp.max_pooled_sessions == 4
+    assert r.cfg.mcp.max_idle_seconds == 60.0
+    assert r.cfg.mcp.preflight_cache_success_ttl == 120.0
+
+    # Defaults.
+    r2 = DefaultRuntime(config={})
+    assert r2.cfg.mcp.max_pooled_sessions is None
+    assert r2.cfg.mcp.max_idle_seconds is None
+    assert r2.cfg.mcp.preflight_cache_success_ttl is None

@@ -153,11 +153,15 @@ Returns:
 
 ### `await runtime.close_session(session_id: str) -> None`
 
-Closes the plugin bundle for one session.
+Closes the plugin bundle for one session. Also cascades into `release_session(session_id)` to release runtime-level shared resources such as the MCP session pool.
+
+### `await runtime.release_session(session_id: str) -> None`
+
+Releases the runtime-owned resources tied to `session_id` (today: the `DefaultRuntime` MCP session pool shared connections) without touching the session's agent plugin bundle. Idempotent; safe to call on a `session_id` that never allocated a pool.
 
 ### `await runtime.close() -> None`
 
-Closes the runtime and any closeable downstream resources.
+Closes the runtime and any closeable downstream resources. For `DefaultRuntime`, this cascades through every MCP session pool and drains their shared connections.
 
 ### `runtime.event_bus`
 

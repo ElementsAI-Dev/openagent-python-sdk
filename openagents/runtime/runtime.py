@@ -340,6 +340,12 @@ class Runtime:
         self._config = new_config
         self._agents_by_id = new_agents
         await self._invalidate_runtime_agent_cache(changed_agent_ids)
+        if changed_agent_ids or removed_agent_ids:
+            invalidate_mcp = getattr(
+                self._runtime, "invalidate_mcp_pools_for_agents", None
+            )
+            if callable(invalidate_mcp):
+                await invalidate_mcp(changed_agent_ids | removed_agent_ids)
 
         for session_plugins in self._session_plugins.values():
             for agent_id in removed_agent_ids:
@@ -449,6 +455,18 @@ class Runtime:
                 if hasattr(plugins.memory, "close"):
                     await plugins.memory.close()
             del self._session_plugins[session_id]
+        await self.release_session(session_id)
+
+    async def release_session(self, session_id: str) -> None:
+        """Drop runtime-owned per-session resources (e.g. shared MCP pool).
+
+        Lighter than :meth:`close_session`: leaves agent plugins alone but
+        releases any runtime-level shared state (today: the MCP session
+        pool) tied to ``session_id``. Idempotent.
+        """
+        release = getattr(self._runtime, "release_session", None)
+        if callable(release):
+            await release(session_id)
 
     async def close(self) -> None:
         """Cleanup runtime resources."""

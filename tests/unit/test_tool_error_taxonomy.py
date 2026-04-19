@@ -45,3 +45,14 @@ def test_tool_rate_limit_error_is_retryable():
 def test_tool_cancelled_error_str_includes_hint():
     exc = ToolCancelledError("run cancelled", tool_name="x", hint="retry later")
     assert "retry later" in str(exc)
+
+
+def test_new_errors_importable_from_public_api():
+    from openagents.errors import (
+        ToolAuthError,
+        ToolCancelledError,
+        ToolRateLimitError,
+        ToolUnavailableError,
+        ToolValidationError,
+    )
+    assert ToolValidationError is not None

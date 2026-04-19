@@ -168,3 +168,18 @@ async def test_cancellation_during_backoff_propagates():
 
 def test_registered_as_builtin():
     assert get_builtin_plugin_class("tool_executor", "retry") is RetryToolExecutor
+
+
+def test_default_retry_on_includes_ratelimit_and_unavailable():
+    from openagents.plugins.builtin.tool_executor.retry import RetryToolExecutor
+
+    exec_plugin = RetryToolExecutor()
+    defaults = exec_plugin._retry_on
+    assert "RetryableToolError" in defaults
+    assert "ToolTimeoutError" in defaults
+    assert "ToolRateLimitError" in defaults
+    assert "ToolUnavailableError" in defaults
+    # Non-retryable types are NOT in the default list:
+    assert "ToolValidationError" not in defaults
+    assert "ToolAuthError" not in defaults
+    assert "ToolCancelledError" not in defaults

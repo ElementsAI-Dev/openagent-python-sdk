@@ -52,6 +52,7 @@ class ConcurrentBatchExecutor(TypedConfigPluginMixin, ToolExecutorPlugin):
         from openagents.config.schema import ToolExecutorRef
         from openagents.plugins.loader import load_plugin
 
+        # inner is single-request only; batching is our job.
         return load_plugin(
             "tool_executor",
             ToolExecutorRef(**ref),
@@ -83,9 +84,19 @@ class ConcurrentBatchExecutor(TypedConfigPluginMixin, ToolExecutorPlugin):
             else:
                 unsafe_indices.append(idx)
 
+        from openagents.errors.exceptions import ToolError
+
         async def run_one(idx: int) -> None:
             async with sem:
-                results[idx] = await self._inner.execute(requests[idx])
+                try:
+                    results[idx] = await self._inner.execute(requests[idx])
+                except Exception as exc:  # inner is expected to wrap — defend anyway
+                    results[idx] = ToolExecutionResult(
+                        tool_id=requests[idx].tool_id,
+                        success=False,
+                        error=str(exc),
+                        exception=ToolError(str(exc), tool_name=requests[idx].tool_id),
+                    )
 
         # Parallel safe group.
         if safe_indices:
@@ -93,7 +104,17 @@ class ConcurrentBatchExecutor(TypedConfigPluginMixin, ToolExecutorPlugin):
 
         # Sequential unsafe group (preserves input order within the group).
         for idx in unsafe_indices:
-            results[idx] = await self._inner.execute(requests[idx])
+            try:
+                results[idx] = await self._inner.execute(requests[idx])
+            except Exception as exc:  # inner is expected to wrap — defend anyway
+                results[idx] = ToolExecutionResult(
+                    tool_id=requests[idx].tool_id,
+                    success=False,
+                    error=str(exc),
+                    exception=ToolError(str(exc), tool_name=requests[idx].tool_id),
+                )
 
-        # Every slot must be filled by construction.
-        return [r for r in results if r is not None]
+        assert all(r is not None for r in results), (
+            "ConcurrentBatchExecutor: result slot unfilled"
+        )
+        return results  # type: ignore[return-value]

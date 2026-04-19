@@ -102,3 +102,39 @@ def test_max_concurrency_bounds_parallelism():
         assert elapsed >= 0.18
 
     asyncio.run(run())
+
+
+def test_concurrent_batch_defends_against_raising_inner_executor():
+    """If a (misbehaving) inner executor raises, we wrap per-request — the batch survives."""
+    from openagents.interfaces.tool import ToolExecutorPlugin
+    from openagents.errors.exceptions import ToolError
+
+    class _RaisingInner(ToolExecutorPlugin):
+        def __init__(self):
+            super().__init__(config={}, capabilities=set())
+            self.calls = 0
+
+        async def execute(self, request):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("inner misbehavior")
+            return ToolExecutionResult(tool_id=request.tool_id, success=True, data=self.calls)
+
+        async def execute_stream(self, request):
+            yield {"type": "result"}
+
+    async def run():
+        tool = _SleepTool(concurrency_safe=False, sleep_s=0.0)
+        executor = ConcurrentBatchExecutor(config={})
+        # Replace inner with a raising one directly (bypasses _load_inner).
+        executor._inner = _RaisingInner()
+        reqs = [_mk_req(tool, i, safe=False) for i in range(3)]
+        results = await executor.execute_batch(reqs)
+        assert len(results) == 3
+        # The middle request had inner raise; it must be reported as failure not crashed batch.
+        assert results[1].success is False
+        assert isinstance(results[1].exception, ToolError)
+        assert results[0].success is True
+        assert results[2].success is True
+
+    asyncio.run(run())

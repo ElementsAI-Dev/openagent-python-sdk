@@ -312,6 +312,54 @@ class _BoundTool:
         async for chunk in self._executor.execute_stream(request):
             yield chunk
 
+    async def invoke_batch(self, items, context):
+        """Dispatch a batch through the executor (executor.execute_batch or sequential fallback).
+
+        Preserves the input ``item_id`` on each ``BatchResult`` and input order.
+        """
+        from openagents.interfaces.tool import BatchResult
+
+        if not items:
+            return []
+
+        scratch = getattr(context, "scratch", None)
+        cancel_event = (
+            scratch.get("__cancel_event__") if isinstance(scratch, dict) else None
+        )
+        spec = self.execution_spec()
+        requests = [
+            ToolExecutionRequest(
+                tool_id=self._tool_id,
+                tool=self._tool,
+                params=it.params or {},
+                context=context,
+                execution_spec=spec,
+                metadata={"bound_tool": True, "batch_item_id": it.item_id},
+                cancel_event=cancel_event,
+            )
+            for it in items
+        ]
+        batch_method = getattr(self._executor, "execute_batch", None)
+        if callable(batch_method):
+            results = await batch_method(requests)
+        else:
+            results = [await self._executor.execute(r) for r in requests]
+
+        out: list[BatchResult] = []
+        for item, res in zip(items, results):
+            if res.success:
+                out.append(BatchResult(item_id=item.item_id, success=True, data=res.data))
+            else:
+                out.append(
+                    BatchResult(
+                        item_id=item.item_id,
+                        success=False,
+                        error=res.error,
+                        exception=res.exception,
+                    )
+                )
+        return out
+
     async def fallback(self, error: Exception, params: dict[str, Any], context: Any) -> Any:
         fallback = getattr(self._tool, "fallback", None)
         if callable(fallback):

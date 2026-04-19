@@ -104,6 +104,27 @@ def test_max_concurrency_bounds_parallelism():
     asyncio.run(run())
 
 
+def test_bound_tool_invoke_batch_preserves_order_and_item_ids():
+    from openagents.interfaces.tool import BatchItem, BatchResult
+    from openagents.plugins.builtin.runtime.default_runtime import _BoundTool
+
+    async def run():
+        tool = _SleepTool(concurrency_safe=True, sleep_s=0.01)
+        executor = ConcurrentBatchExecutor(config={})
+        bound = _BoundTool(tool_id="sleep", tool=tool, executor=executor)
+        items = [BatchItem(params={"i": i}) for i in range(4)]
+        results = await bound.invoke_batch(items, context=None)
+        assert isinstance(results, list)
+        assert len(results) == 4
+        for item, r in zip(items, results):
+            assert isinstance(r, BatchResult)
+            assert r.item_id == item.item_id
+            assert r.success is True
+        assert [r.data for r in results] == [0, 1, 2, 3]
+
+    asyncio.run(run())
+
+
 def test_concurrent_batch_defends_against_raising_inner_executor():
     """If a (misbehaving) inner executor raises, we wrap per-request — the batch survives."""
     from openagents.interfaces.tool import ToolExecutorPlugin

@@ -7,6 +7,7 @@ import inspect
 import logging
 import time
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from openagents.config.schema import AgentDefinition, AppConfig
@@ -174,17 +175,17 @@ class _BoundTool:
         return ToolExecutionSpec()
 
     async def invoke(self, params: dict[str, Any], context: Any) -> ToolExecutionResult:
-        """Return the full :class:`ToolExecutionResult` so executor metadata
-        (retry counts, timeouts, policy decisions) survives to events.
+        """Bound invocation: call_id + approval gate + before/after hooks + executor.
 
-        The base :class:`PatternPlugin.call_tool` unwraps via
-        :func:`unwrap_tool_result` for backward-compatible data access
-        and propagates ``executor_metadata`` on the ``tool.succeeded``
-        event payload.
+        Owns the per-call lifecycle: assigns ``call_id`` and stashes it in
+        ``ctx.scratch['__current_call_id__']``; evaluates
+        ``tool.requires_approval()`` and consults
+        ``ctx.run_request.context_hints['approvals']``; runs
+        ``before_invoke`` and ``after_invoke`` hooks around the executor.
 
-        Policy evaluation is now owned by the executor (see
-        :meth:`ToolExecutorPlugin.evaluate_policy`); the bound tool no
-        longer performs a pre-dispatch policy check.
+        Returns the executor's :class:`ToolExecutionResult` on success so
+        metadata (retry counts, timeouts, policy decisions) flows to events.
+        Raises on failure so the pattern fallback path still works.
         """
         budget = getattr(getattr(context, "run_request", None), "budget", None)
         usage = getattr(context, "usage", None)
@@ -198,23 +199,106 @@ class _BoundTool:
                     run_id=getattr(getattr(context, "run_request", None), "run_id", None),
                     tool_id=self._tool_id,
                 )
+
+        call_id = uuid4().hex
+        scratch = getattr(context, "scratch", None)
+        if isinstance(scratch, dict):
+            scratch["__current_call_id__"] = call_id
+
+        if self._requires_approval(params, context):
+            event_bus = getattr(context, "event_bus", None)
+            if event_bus is not None and callable(getattr(event_bus, "emit", None)):
+                try:
+                    await event_bus.emit(
+                        "tool.approval_needed",
+                        tool_id=self._tool_id,
+                        call_id=call_id,
+                        params=params or {},
+                    )
+                except Exception:
+                    pass
+            approvals = self._approvals_dict(context)
+            decision = approvals.get(call_id) if approvals else None
+            if decision is None and approvals:
+                decision = approvals.get("*")
+            if decision is None:
+                raise PermanentToolError(
+                    f"Tool '{self._tool_id}' requires approval; no decision found for call_id '{call_id}'",
+                    tool_name=self._tool_id,
+                    hint=f"Inject context_hints['approvals']['{call_id}'] = 'allow' and re-run",
+                )
+            if decision == "deny":
+                raise PermanentToolError(
+                    f"Tool '{self._tool_id}' denied by approval policy",
+                    tool_name=self._tool_id,
+                )
+
+        before = getattr(self._tool, "before_invoke", None)
+        if callable(before):
+            await before(params or {}, context)
+
+        cancel_event = (
+            scratch.get("__cancel_event__") if isinstance(scratch, dict) else None
+        )
         request = ToolExecutionRequest(
             tool_id=self._tool_id,
             tool=self._tool,
             params=params or {},
             context=context,
             execution_spec=self.execution_spec(),
-            metadata={"bound_tool": True},
+            metadata={"bound_tool": True, "call_id": call_id},
+            cancel_event=cancel_event,
         )
-        result = await self._executor.execute(request)
-        if result.success:
-            usage = getattr(context, "usage", None)
-            if usage is not None:
-                usage.tool_calls += 1
-            return result
-        if result.exception is not None:
-            raise result.exception
-        raise RuntimeError(result.error or f"Tool '{self._tool_id}' failed")
+        exception: BaseException | None = None
+        result: ToolExecutionResult | None = None
+        try:
+            result = await self._executor.execute(request)
+            if result.success:
+                if usage is not None:
+                    usage.tool_calls += 1
+                return result
+            exception = (
+                result.exception
+                if result.exception is not None
+                else RuntimeError(result.error or f"Tool '{self._tool_id}' failed")
+            )
+            raise exception
+        except BaseException as exc:
+            if exception is None:
+                exception = exc
+            raise
+        finally:
+            after = getattr(self._tool, "after_invoke", None)
+            if callable(after):
+                try:
+                    await after(
+                        params or {},
+                        context,
+                        result.data if (result is not None and result.success) else None,
+                        exception,
+                    )
+                except Exception:
+                    # after_invoke must not mask the original exception path.
+                    pass
+
+    def _requires_approval(self, params: dict[str, Any], context: Any) -> bool:
+        check = getattr(self._tool, "requires_approval", None)
+        if not callable(check):
+            return False
+        try:
+            return bool(check(params or {}, context))
+        except Exception:
+            return False
+
+    def _approvals_dict(self, context: Any) -> dict[str, str] | None:
+        run_request = getattr(context, "run_request", None)
+        if run_request is None:
+            return None
+        hints = getattr(run_request, "context_hints", None)
+        if not isinstance(hints, dict):
+            return None
+        approvals = hints.get("approvals")
+        return approvals if isinstance(approvals, dict) else None
 
     async def invoke_stream(self, params: dict[str, Any], context: Any):
         request = ToolExecutionRequest(

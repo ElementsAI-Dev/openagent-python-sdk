@@ -27,10 +27,17 @@ Regenerate this file via::
 | `pattern.step_started` | `step` | `plan_step` | Pattern began an execution step. |
 | `session.run.completed` | `agent_id`, `session_id`, `stop_reason` | `run_id`, `duration_ms` | Runtime finished a single run. |
 | `session.run.started` | `agent_id`, `session_id` | `run_id`, `input_text` | Runtime begins a single run. |
-| `tool.called` | `tool_id`, `params` | — | Pattern is about to invoke a tool. |
-| `tool.failed` | `tool_id`, `error` | — | Tool raised; final after fallback. Use 'tool.retry_requested' for ModelRetry signal. |
-| `tool.retry_requested` | `tool_id`, `attempt`, `error` | — | Pattern caught ModelRetryError and is retrying. |
-| `tool.succeeded` | `tool_id`, `result` | `executor_metadata` | Tool returned successfully. |
+| `tool.approval_needed` | `tool_id`, `call_id`, `params` | `reason` | Tool requires human approval; app must inject approvals[call_id] in next run. |
+| `tool.background.completed` | `tool_id`, `call_id`, `job_id`, `status` | — | Background tool job reached terminal state (succeeded/failed/cancelled). |
+| `tool.background.polled` | `tool_id`, `call_id`, `job_id`, `status` | `progress` | Background tool job was polled. |
+| `tool.background.submitted` | `tool_id`, `call_id`, `job_id` | — | Background tool job was submitted; handle returned. |
+| `tool.batch.completed` | `batch_id`, `successes`, `failures` | `duration_ms` | A batched tool invocation finished. |
+| `tool.batch.started` | `batch_id`, `call_ids`, `concurrent_count` | — | A batched tool invocation started. |
+| `tool.called` | `tool_id`, `params` | `call_id` | Pattern is about to invoke a tool. |
+| `tool.cancelled` | `tool_id`, `call_id` | `reason` | Tool invocation was cancelled via cancel_event before completion. |
+| `tool.failed` | `tool_id`, `error` | `call_id` | Tool raised; final after fallback. Use 'tool.retry_requested' for ModelRetry signal. |
+| `tool.retry_requested` | `tool_id`, `attempt`, `error` | `call_id` | Pattern caught ModelRetryError and is retrying. |
+| `tool.succeeded` | `tool_id`, `result` | `executor_metadata`, `call_id` | Tool returned successfully. |
 | `usage.updated` | `usage` | — | RunUsage object was updated; emitted after every LLM call. |
 
 ## OpenTelemetry mapping

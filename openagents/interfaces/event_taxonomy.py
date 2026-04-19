@@ -32,25 +32,25 @@ EVENT_SCHEMAS: dict[str, EventSchema] = {
     "tool.called": EventSchema(
         "tool.called",
         ("tool_id", "params"),
-        (),
+        ("call_id",),
         "Pattern is about to invoke a tool.",
     ),
     "tool.succeeded": EventSchema(
         "tool.succeeded",
         ("tool_id", "result"),
-        ("executor_metadata",),
+        ("executor_metadata", "call_id"),
         "Tool returned successfully.",
     ),
     "tool.failed": EventSchema(
         "tool.failed",
         ("tool_id", "error"),
-        (),
+        ("call_id",),
         "Tool raised; final after fallback. Use 'tool.retry_requested' for ModelRetry signal.",
     ),
     "tool.retry_requested": EventSchema(
         "tool.retry_requested",
         ("tool_id", "attempt", "error"),
-        (),
+        ("call_id",),
         "Pattern caught ModelRetryError and is retrying.",
     ),
     "llm.called": EventSchema(
@@ -143,5 +143,47 @@ EVENT_SCHEMAS: dict[str, EventSchema] = {
         (),
         (),
         "memory.writeback() returned.",
+    ),
+    "tool.batch.started": EventSchema(
+        "tool.batch.started",
+        ("batch_id", "call_ids", "concurrent_count"),
+        (),
+        "A batched tool invocation started.",
+    ),
+    "tool.batch.completed": EventSchema(
+        "tool.batch.completed",
+        ("batch_id", "successes", "failures"),
+        ("duration_ms",),
+        "A batched tool invocation finished.",
+    ),
+    "tool.approval_needed": EventSchema(
+        "tool.approval_needed",
+        ("tool_id", "call_id", "params"),
+        ("reason",),
+        "Tool requires human approval; app must inject approvals[call_id] in next run.",
+    ),
+    "tool.cancelled": EventSchema(
+        "tool.cancelled",
+        ("tool_id", "call_id"),
+        ("reason",),
+        "Tool invocation was cancelled via cancel_event before completion.",
+    ),
+    "tool.background.submitted": EventSchema(
+        "tool.background.submitted",
+        ("tool_id", "call_id", "job_id"),
+        (),
+        "Background tool job was submitted; handle returned.",
+    ),
+    "tool.background.polled": EventSchema(
+        "tool.background.polled",
+        ("tool_id", "call_id", "job_id", "status"),
+        ("progress",),
+        "Background tool job was polled.",
+    ),
+    "tool.background.completed": EventSchema(
+        "tool.background.completed",
+        ("tool_id", "call_id", "job_id", "status"),
+        (),
+        "Background tool job reached terminal state (succeeded/failed/cancelled).",
     ),
 }

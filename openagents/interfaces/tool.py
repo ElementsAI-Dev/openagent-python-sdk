@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, AsyncIterator, Literal, Protocol, runtime_checkable
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -68,6 +69,7 @@ class ToolExecutionRequest(BaseModel):
     context: Any = None
     execution_spec: ToolExecutionSpec = Field(default_factory=ToolExecutionSpec)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    cancel_event: Any | None = None
 
 
 class ToolExecutionResult(BaseModel):
@@ -81,6 +83,50 @@ class ToolExecutionResult(BaseModel):
     error: str | None = None
     exception: OpenAgentsError | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class BatchItem(BaseModel):
+    """One entry in a batched tool call."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    params: dict[str, Any] = Field(default_factory=dict)
+    item_id: str = Field(default_factory=lambda: uuid4().hex)
+
+
+class BatchResult(BaseModel):
+    """One result in a batched tool call. Preserves input item_id and order."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    item_id: str
+    success: bool
+    data: Any = None
+    error: str | None = None
+    exception: OpenAgentsError | None = None
+
+
+class JobHandle(BaseModel):
+    """Returned by invoke_background(). Serialized back to the LLM as the tool result."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    job_id: str
+    tool_id: str
+    status: Literal["pending", "running", "succeeded", "failed", "cancelled"]
+    created_at: float
+
+
+class JobStatus(BaseModel):
+    """Returned by poll_job()."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    job_id: str
+    status: Literal["pending", "running", "succeeded", "failed", "cancelled"]
+    progress: float | None = None
+    result: Any = None
+    error: str | None = None
 
 
 @runtime_checkable
